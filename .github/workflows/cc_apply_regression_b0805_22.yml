@@ -1,0 +1,30 @@
+name: Apply permanent b0805-22 regression contract
+
+"on":
+  push:
+    branches: ["agent/b0805-22-manual-runner-priority"]
+    paths: [".github/workflows/cc_apply_regression_b0805_22.yml"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-22-manual-runner-priority
+      - run: |
+          python .cc_patch_regression_b0805_22.py
+          git diff --check
+          python - <<'PY'
+          import yaml
+          yaml.safe_load(open('.github/workflows/baseball3d-regression.yml',encoding='utf-8'))
+          print('workflow yaml ok')
+          PY
+      - run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows/baseball3d-regression.yml
+          git diff --cached --check
+          git commit -m "ci: enforce high-fly manual S/X regression"
+          git push origin HEAD:agent/b0805-22-manual-runner-priority
