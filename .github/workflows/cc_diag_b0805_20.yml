@@ -1,0 +1,58 @@
+name: Diagnose b0805-20 lifecycle stalls
+
+"on":
+  push:
+    branches: ["agent/b0805-20-play-lifecycle"]
+    paths: [".github/workflows/cc_diag_b0805_20.yml"]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-20-play-lifecycle
+      - name: Apply refined b0805-20 patch
+        run: python .cc_patch_b0805_20_retry.py
+      - name: Build diagnostic harness
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          old="if(['flight','throwing','play'].includes(S.phase) && !S.over){ fails.push({n,ex,la,sp,bi,why:'未終了'}); continue; }"
+          new="""if(['flight','throwing','play'].includes(S.phase) && !S.over){
+            const ls=(typeof playLifecycleState==='function'&&throwPlay)?playLifecycleState():null;
+            fails.push({n,ex,la,sp,bi,why:'未終了',phase:S.phase,pc:+(S.playClock||0).toFixed(2),
+              tp:throwPlay?{st:throwPlay.stage,to:throwPlay.target,kind:throwPlay.kind,t:+(throwPlay.t||0).toFixed(2),
+                chased:!!throwPlay.chased,ls:throwPlay.lifecycleSource||'',lr:throwPlay.lifecycleReason||'',lq:throwPlay.lifecycleSeq||0}:null,
+              lifecycle:ls,
+              ball:ball?{z:+(ball.z||0).toFixed(2),speed:+Math.hypot(ball.vx||0,ball.vy||0,ball.vz||0).toFixed(2),landed:!!ball.landed,x:+(ball.x||0).toFixed(1),y:+(ball.y||0).toFixed(1)}:null,
+              run:runners.filter(r=>!r.out).map(r=>({o:r.origin,p:+r.p.toFixed(3),g:+r.goal.toFixed(3),d:runnerObservedDir(r),v:+(r.v||0).toFixed(2),cmd:r.cmd||''}))
+            }); continue; }"""
+          assert h.count(old)==1
+          h=h.replace(old,new,1)
+          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
+          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
+          assert h.count(marker)==1
+          h=h.replace(marker,exposed,1)
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          prelude=("<script>(()=>{let s=0x71D22228>>>0;Math.random=()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};})();window.requestAnimationFrame=()=>0;</script>\n<script>\n\"use strict\";")
+          base=base.replace('<script>\n"use strict";',prelude,1)
+          base=base.replace('</body>',f'<script>\n{h}\n</script>\n</body>',1)
+          Path('/tmp/diag.html').write_text(base,encoding='utf-8')
+          PY
+      - name: Run diagnostic
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          timeout 240 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/diag.html > /tmp/diag.dom 2>/tmp/diag.err
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+          s=Path('/tmp/diag.dom').read_text(encoding='utf-8',errors='replace')
+          m=re.search(r'data-harness="([^"]+)"',s)
+          if not m: raise SystemExit('harness missing')
+          out=json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          print(json.dumps(out['sweep128'],ensure_ascii=False,indent=2))
+          PY
