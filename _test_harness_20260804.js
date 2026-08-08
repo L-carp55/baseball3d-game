@@ -990,6 +990,36 @@
     out.test42_Lifecycle拒否後物理継続=res;
   })();
 
+  // ===== test43: 挟殺終了時に仮の塁間goalを合法な塁へ清算 =====
+  (function(){
+    const chk=[];
+    try{
+      function runCase(p,g,loLim,hiLim,expected){
+        newGame(); S.outs=0; S.preOuts=0; S.phase='throwing';
+        const f=fielders.find(x=>x.n==='遊');
+        const r=makeRunner(p,g,0,25); r.obsDir=0; r.v=0; runners=[r];
+        ball={x:f.cx,y:f.cy,z:4.4,vx:0,vy:0,vz:0,landed:false};
+        throwPlay={stage:'rundown',kind:'outfield',target:expected,thrower:f,receiver:f,t:0,
+          transfer:0.2,fieldT:1,award:1,relayed:false,
+          rd:{r,sub:'chase',holder:f,lo:1,hi:2,loLim,hiLim,t:1,rt:0,ex:2,fumble:true}};
+        endRundown('送球がそれてセーフ！','#3fd66a');
+        const out={goal:r.goal,source:r.intentSource,target:throwPlay&&throwPlay.target,stage:throwPlay&&throwPlay.stage};
+        throwPlay=null; runners=[];
+        return out;
+      }
+      const low=runCase(1.2,1.2,1.2,1.8,1);
+      chk.push({n:'一塁側の仮goalは一塁へ',ok:low.goal===1&&low.source==='rundown-exit'&&low.target===1});
+      const high=runCase(1.8,1.8,1.2,1.8,2);
+      chk.push({n:'二塁側の仮goalは二塁へ',ok:high.goal===2&&high.source==='rundown-exit'&&high.target===2});
+      newGame();
+      const r=makeRunner(1.2,1.2,0,25); r.out=true;
+      const keep=settleRundownExitIntent({rd:{r,lo:1,hi:2,loLim:1.2,hiLim:1.8}});
+      chk.push({n:'アウト済み走者は変更しない',ok:keep===null&&r.goal===1.2});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    const bad=chk.filter(x=>!x.ok);
+    out.test43_挟殺終了goal清算={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();

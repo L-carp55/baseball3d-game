@@ -299,3 +299,11 @@ Phase 4基盤完了後のラチェット:
 - `lifecycleSource / lifecycleSeq / lifecycleReason`を録画へ残す。
 
 - 追加検証で、終了gatewayを早期return位置へ機械置換すると拒否時にも呼出元がreturnし、ライブ送球が凍結することを検出。物理更新前の終了要求は「実際に閉じた時だけreturn」へ固定した。
+
+
+## Phase 6b — b0805-21 Rundown exit intent
+
+- 50試合固定seed検証で、挟殺中の仮`goal`（1.2/1.7等）が送球ミス後も残り、非アウト走者が塁間停止する4/50未終了を発見。
+- g2固定seed `0xdfb07ee1` で `goal 1 → 1.9 → 1.2`、最後の更新が`R.fumble=true / loLim=1.2 / hiLim=1.8`であることを実行追跡。
+- `settleRundownExitIntent`を追加し、挟殺終了時に仮の逃げ幅goalを対応する合法な塁`R.lo/R.hi`へRunnerIntent経由で清算する。
+- PlayLifecycleの「塁間では閉じない」契約は緩めない。走者自身を合法な塁へ動かして決着させる。
