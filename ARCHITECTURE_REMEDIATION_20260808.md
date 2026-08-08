@@ -184,11 +184,22 @@ Phase 2完了後のラチェット:
 
 - `goal`を数値だけでなく意図enumへ分離する作業は、50録画のコーパス化と合わせて後続RunnerIntent高度化で行う。
 
-### Phase 3: FieldingAssignment
+### Phase 3: FieldingAssignment基盤 — BUILD b0805-16
 
-- `primary`と`coverBase`を一つの割当表へ統合。
-- `rundownCover`の役割奪取、長距離中継の元カバー消失、壁反射後の旧担当参照を修理。
-- 担当交代をトランザクション化する。
+本PRで実施する。
+
+- `primary`と`coverBase`の全変更を守備割当APIへ集約する。
+- 役割変更元`roleSource`と更新番号`roleSeq`を録画へ追加する。
+- `rundownCover`は既存同塁担当または無役野手だけを選び、別塁カバー/打球担当を奪わない。
+- 中継・本塁カットでカバー野手を動かす場合は、代役を先に確保して原子的に再配置する。代役がいなければ引き抜かない。
+- 壁反射で担当が変わった物理刻みは直ちに終了し、次刻みで新担当を再取得する。
+- `resetFielders`はprimaryだけでなく全coverも消去する。
+
+Phase 3完了後のラチェット:
+
+- `primary`直接書き込み: 9 → **2**（両方`setPrimaryFielder`内）
+- `coverBase`直接書き込み: 13 → **2**（clear/assign API内に各1）
+- 役割奪取・元カバー消失・壁反射旧担当捕球の専用テストと変異検査をCIへ追加する。
 
 ### Phase 4: ReachModel
 
