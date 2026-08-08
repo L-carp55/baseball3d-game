@@ -278,3 +278,12 @@ Phase 4基盤完了後のラチェット:
 - 候補が0.12秒以上有利、または球が旧目標を通過済みの場合のみ切り替える。
 - `aimSource / aimSeq` を録画へ追加し、目標変更の出所を追跡する。
 - architecture guardで`stepFlight`の動的再照準が`retargetFielder`を経由することを固定する。
+
+
+## Phase 5 — b0805-19 ThrowDecision
+
+- 捕球時・リリース時・追加送球の自動送球先を`decideThrowTarget`へ集約する。
+- `T.target`の後書きは`setThrowTarget`だけが行い、`decisionSource / decisionSeq`を録画へ残す。
+- 手動指定、フライ、盗塁、牽制、中継の固定ルールを同じ優先順位表へ置く。
+- 守備側の手動`P`指定が一塁へ変換される旧経路を廃止する。
+- architecture guardで`chooseThrowTarget`の直接呼び出しと第二の`T.target`書き手を禁止する。

@@ -113,6 +113,18 @@ jobs:
           assert base.count(old7)==1
           build(base.replace(old7,'',1),'mut36')
 
+          old8="  if(o.manualTarget!=null) return {nb:o.manualTarget,source:'manual',locked:true};\n"
+          assert base.count(old8)==1
+          build(base.replace(old8,"  if(o.manualTarget!=null) return {nb:o.manualTarget==='P'?1:o.manualTarget,source:'manual',locked:true};\n",1),'mut37')
+
+          old9="  if(o.relayed || o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){\n"
+          assert base.count(old9)==1
+          build(base.replace(old9,"  if(o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){\n",1),'mut38')
+
+          old10="  if(throwPlay && throwPlay.stage==='transfer') setThrowTarget(throwPlay,t,'manual-live');\n"
+          assert base.count(old10)==1
+          build(base.replace(old10,"  if(throwPlay && throwPlay.stage==='transfer') throwPlay.target=(t==='P')?1:t;\n",1),'mut39')
+
           # Structural mutation: reintroduce a second direct goal writer.
           guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
@@ -135,43 +147,43 @@ jobs:
           retarget_old="      retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');\n"
           assert base.count(retarget_old)==1
           Path('/tmp/guard-retarget-mutated.html').write_text(base.replace(retarget_old,"      setTarget(prim,b2.x,b2.y);\n",1),encoding='utf-8')
+
+          # Structural mutation: add a second post-construction throw-target writer.
+          throw_anchor="      if(T.kind==='pickoff'){\n"
+          assert base.count(throw_anchor)==1
+          Path('/tmp/guard-throw-mutated.html').write_text(base.replace(throw_anchor,"      T.target='P';\n"+throw_anchor,1),encoding='utf-8')
           PY
 
       - name: Assert architecture mutation is rejected
         run: |
           if node _architecture_guard_20260808.js /tmp/guard-mutated.html; then
-            echo 'goal architecture mutation escaped'
-            exit 1
+            echo 'goal architecture mutation escaped'; exit 1
           fi
           if node _architecture_guard_20260808.js /tmp/guard-cover-mutated.html; then
-            echo 'cover architecture mutation escaped'
-            exit 1
+            echo 'cover architecture mutation escaped'; exit 1
           fi
           if node _architecture_guard_20260808.js /tmp/guard-reach-mutated.html; then
-            echo 'ReachModel architecture mutation escaped'
-            exit 1
+            echo 'ReachModel architecture mutation escaped'; exit 1
           fi
           if node _architecture_guard_20260808.js /tmp/guard-retarget-mutated.html; then
-            echo 'retarget architecture mutation escaped'
-            exit 1
+            echo 'retarget architecture mutation escaped'; exit 1
+          fi
+          if node _architecture_guard_20260808.js /tmp/guard-throw-mutated.html; then
+            echo 'ThrowDecision architecture mutation escaped'; exit 1
           fi
 
       - name: Run browser harness
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36; do
+          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39; do
             timeout 240 "$CHROME" \
-              --headless=new \
-              --no-sandbox \
-              --disable-dev-shm-usage \
-              --use-gl=swiftshader \
-              --enable-unsafe-swiftshader \
+              --headless=new --no-sandbox --disable-dev-shm-usage \
+              --use-gl=swiftshader --enable-unsafe-swiftshader \
               --allow-file-access-from-files \
               --dump-dom "file:///tmp/$name.html" \
               > "/tmp/$name.dom" 2> "/tmp/$name.err" || {
-                cat "/tmp/$name.err"
-                exit 1
+                cat "/tmp/$name.err"; exit 1
               }
           done
 
@@ -184,33 +196,26 @@ jobs:
           def load(name):
               dom=Path('/tmp/'+name+'.dom').read_text(encoding='utf-8',errors='replace')
               match=re.search(r'data-harness="([^"]+)"',dom)
-              if not match:
-                  raise SystemExit(name+': data-harness missing')
+              if not match: raise SystemExit(name+': data-harness missing')
               return json.loads(urllib.parse.unquote(html.unescape(match.group(1))))
 
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=38 or bad:
-              raise SystemExit('baseline failed')
+          if len(baseline)!=41 or bad: raise SystemExit('baseline failed')
 
-          m28=load('mut28'); m29=load('mut29'); m30=load('mut30')
-          m31=load('mut31'); m32=load('mut32'); m33=load('mut33')
-          m35=load('mut35'); m36=load('mut36')
-          print('mut28',m28['test28_個別走者選択'])
-          print('mut29',m29['test29_守備と走者意図の分離'])
-          print('mut30',m30['test30_RunnerIntent契約'])
-          print('mut31',m31['test31_FieldingAssignment契約'])
-          print('mut32',m32['test32_壁反射担当交代'])
-          print('mut33',m33['test33_ReachModel契約'],m33['test34_動的到達方向'])
-          print('mut35',m35['test35_再照準採用'])
-          print('mut36',m36['test36_通過済み目標'])
+          m28=load('mut28'); m29=load('mut29'); m30=load('mut30'); m31=load('mut31')
+          m32=load('mut32'); m33=load('mut33'); m35=load('mut35'); m36=load('mut36')
+          m37=load('mut37'); m38=load('mut38'); m39=load('mut39')
           if m28['test28_個別走者選択'].get('verdict')!='FAIL': raise SystemExit('selection-scope mutation escaped')
           if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL': raise SystemExit('intent-leak mutation escaped')
-          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL': raise SystemExit('RunnerIntent API mutation escaped')
-          if m31['test31_FieldingAssignment契約'].get('verdict')!='FAIL': raise SystemExit('role-stealing mutation escaped')
-          if m32['test32_壁反射担当交代'].get('verdict')!='FAIL': raise SystemExit('wall-handoff mutation escaped')
-          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL': raise SystemExit('ReachModel turn mutation escaped')
+          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL': raise SystemExit('RunnerIntent mutation escaped')
+          if m31['test31_FieldingAssignment契約'].get('verdict')!='FAIL': raise SystemExit('role mutation escaped')
+          if m32['test32_壁反射担当交代'].get('verdict')!='FAIL': raise SystemExit('wall mutation escaped')
+          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL': raise SystemExit('ReachModel mutation escaped')
           if m35['test35_再照準採用'].get('verdict')!='FAIL': raise SystemExit('retarget gain mutation escaped')
           if m36['test36_通過済み目標'].get('verdict')!='FAIL': raise SystemExit('passed-target mutation escaped')
+          if m37['test37_ThrowDecision固定規則'].get('verdict')!='FAIL' and m37['test39_手動投手返球'].get('verdict')!='FAIL': raise SystemExit('manual priority mutation escaped')
+          if m38['test37_ThrowDecision固定規則'].get('verdict')!='FAIL': raise SystemExit('relay lock mutation escaped')
+          if m39['test39_手動投手返球'].get('verdict')!='FAIL': raise SystemExit('manual P mutation escaped')
           PY
