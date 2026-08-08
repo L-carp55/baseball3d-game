@@ -817,6 +817,45 @@
     out.test32_壁反射担当交代=res;
   })();
 
+  // ===== test33: ReachModelの反応・運動クレジット・方向転換契約 =====
+  (function(){
+    const chk=[];
+    try{
+      const f={x:0,y:0,cx:0,cy:0,tx:100,ty:0,sp:20,v:0,zone:0.0095};
+      const staticT=reachTimeToPoint(f,60,0,{useCurrent:false,reach:0,turn:false});
+      chk.push({n:'静止到達は反応+加速走行',ok:Math.abs(staticT-(reactOf(f)+runTime(20,60)))<1e-9});
+      f.v=20; f.tx=100; f.ty=0;
+      const forward=reachTimeToPoint(f,60,0,{useCurrent:true,reach:0,reactScale:0.4,turn:true});
+      const reverse=reachTimeToPoint(f,-60,0,{useCurrent:true,reach:0,reactScale:0.4,turn:true});
+      chk.push({n:'走行中は静止再計算より速い',ok:forward<staticT&&forward>=60/20-1e-9});
+      chk.push({n:'180度反転には方向転換コスト',ok:reverse-forward>0.25});
+      const stopped={...f,v:0,tx:-100,ty:0};
+      chk.push({n:'停止中は向きで差を付けない',ok:Math.abs(
+        reachTimeToPoint(stopped,60,0,{useCurrent:true,turn:true})-
+        reachTimeToPoint(stopped,-60,0,{useCurrent:true,turn:true}))<1e-9});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    const bad=chk.filter(x=>!x.ok);
+    out.test33_ReachModel契約={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test34: 動的planPlayは近さだけでなく方向転換コストを見る =====
+  (function(){
+    let res={};
+    const savedStep=window.stepBall, savedReact=window.reactOf;
+    try{
+      window.stepBall=(b,h)=>{b.x=30;b.y=0;b.z=1;b.vx=0;b.vy=0;b.vz=0;};
+      window.reactOf=()=>0;
+      const away={n:'away',x:0,y:0,cx:0,cy:0,tx:-100,ty:0,sp:20,v:20,fld:70,zone:0.0095};
+      const aligned={n:'aligned',x:-2,y:0,cx:-2,cy:0,tx:100,ty:0,sp:20,v:20,fld:70,zone:0.0095};
+      fielders=[away,aligned];
+      const src={x:30,y:0,z:1,vx:0,vy:0,vz:0,bs:0,ss:0,landed:true,t:0,maxZ:1};
+      const p=planPlay(src,true);
+      res={selected:p.f&&p.f.n,verdict:p.f===aligned?'PASS':'FAIL'};
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    finally{window.stepBall=savedStep;window.reactOf=savedReact;}
+    out.test34_動的到達方向=res;
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
