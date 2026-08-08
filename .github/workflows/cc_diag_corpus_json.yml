@@ -1,0 +1,23 @@
+name: Diagnose recording corpus JSON
+"on":
+  push:
+    branches: ["agent/validation-recording-corpus"]
+    paths: [".github/workflows/cc_diag_corpus_json.yml"]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/validation-recording-corpus
+      - run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('validation/recording_scenarios_20260808.json').read_text(encoding='utf-8')
+          print('length',len(s))
+          print('slice',repr(s[14750:15300]))
+          print('context')
+          print(s[14750:15300])
+          PY
