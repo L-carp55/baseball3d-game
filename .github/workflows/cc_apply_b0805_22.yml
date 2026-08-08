@@ -17,6 +17,7 @@ jobs:
       - name: Apply patch
         run: |
           python .cc_patch_b0805_22.py
+          python .cc_patch_guard_b0805_22.py
           git diff --check
       - name: Static and architecture checks
         run: |
@@ -84,7 +85,7 @@ jobs:
         run: |
           git config user.name "ChatGPT"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add baseball3d.html _test_harness_20260804.js ARCHITECTURE_REMEDIATION_20260808.md
+          git add baseball3d.html _test_harness_20260804.js _architecture_guard_20260808.js ARCHITECTURE_REMEDIATION_20260808.md
           git diff --cached --check
           git commit -m "fix: prioritize manual runner commands on high flies"
           git push origin HEAD:agent/b0805-22-manual-runner-priority
