@@ -135,6 +135,11 @@ jobs:
           frozen="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled) return requestPlayConclusion('request');\n"
           build(base.replace(safe,frozen,1),'mut42')
 
+          rundown_call="  const rundownExit=settleRundownExitIntent(T);\n"
+          assert base.count(rundown_call)==1
+          rundown_mutated=base.replace(rundown_call,"  const rundownExit=null;\n",1)
+          build(rundown_mutated,'mut43')
+
           # Architecture mutations.
           guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
@@ -158,11 +163,12 @@ jobs:
           assert base.count(throw_anchor)==1
           Path('/tmp/guard-throw.html').write_text(base.replace(throw_anchor,"      T.target='P';\n"+throw_anchor,1),encoding='utf-8')
           Path('/tmp/guard-lifecycle.html').write_text(base.replace(throw_anchor,"      concludePlay(false);\n"+throw_anchor,1),encoding='utf-8')
+          Path('/tmp/guard-rundown.html').write_text(rundown_mutated,encoding='utf-8')
           PY
 
       - name: Assert architecture mutations are rejected
         run: |
-          for f in goal cover reach retarget throw lifecycle; do
+          for f in goal cover reach retarget throw lifecycle rundown; do
             if node _architecture_guard_20260808.js "/tmp/guard-$f.html"; then
               echo "$f architecture mutation escaped"
               exit 1
@@ -173,7 +179,7 @@ jobs:
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39 mut40 mut41 mut42; do
+          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39 mut40 mut41 mut42 mut43; do
             timeout 240 "$CHROME" \
               --headless=new --no-sandbox --disable-dev-shm-usage \
               --use-gl=swiftshader --enable-unsafe-swiftshader \
@@ -199,9 +205,9 @@ jobs:
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=44 or bad: raise SystemExit('baseline failed')
+          if len(baseline)!=45 or bad: raise SystemExit('baseline failed')
 
-          m={n:load('mut'+str(n)) for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42]}
+          m={n:load('mut'+str(n)) for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43]}
           checks=[
             (m[28]['test28_個別走者選択'],'selection'),
             (m[29]['test29_守備と走者意図の分離'],'intent'),
@@ -216,6 +222,7 @@ jobs:
             (m[39]['test39_手動投手返球'],'manual P'),
             (m[40]['test40_ライブ送球終了禁止'],'live ball'),
             (m[41]['test41_PlayLifecycle門番'],'third out'),
+            (m[43]['test43_挟殺終了goal清算'],'rundown exit'),
           ]
           if m[37]['test37_ThrowDecision固定規則'].get('verdict')!='FAIL' and m[37]['test39_手動投手返球'].get('verdict')!='FAIL':
               raise SystemExit('manual priority mutation escaped')
