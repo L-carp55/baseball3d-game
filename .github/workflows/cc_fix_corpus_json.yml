@@ -22,8 +22,6 @@ jobs:
           assert len(s)==15023, len(s)
           assert s.endswith(']]}'), s[-20:]
           s=s[:-1]+']}'
-          # remove the deliberate Python string quote artifact above safely
-          s=s[:-1]
           data=json.loads(s)
           assert len(data['plays'])==138
           sha=hashlib.sha256(s.encode()).hexdigest()
