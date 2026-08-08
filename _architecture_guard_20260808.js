@@ -110,6 +110,18 @@ check('stepFlight routes dynamic aim through retarget gate',count(/retargetField
   (flightBody.match(/retargetFielder\s*\(/g)||[]).length);
 check('stepFlight has no legacy direct dynamic target writes',
   !/setTarget\(prim,\s*b2\.x/.test(flightBody)&&!/setTarget\(prim,\s*ip\[0\]/.test(flightBody),'retarget gate');
+const throwWrites=count(/\b(?:T|throwPlay)\.target\s*=(?!=)/g,clean);
+check('throw target has exactly one post-construction writer',throwWrites===1,throwWrites);
+const setThrowBody=stripComments(extractFunction('setThrowTarget'));
+check('throw target writer lives in setThrowTarget',count(/\bT\.target\s*=(?!=)/g,setThrowBody)===1,
+  (setThrowBody.match(/\bT\.target\s*=(?!=)/g)||[]).length);
+const chooseCalls=count(/\bchooseThrowTarget\s*\(/g,clean);
+check('chooseThrowTarget is only definition plus ThrowDecision internals',chooseCalls===2,chooseCalls);
+const decisionBody=stripComments(extractFunction('decideThrowTarget'));
+check('ThrowDecision owns automatic target selection',/chooseThrowTarget\s*\(/.test(decisionBody),'decision boundary');
+const manualBody=stripComments(extractFunction('setManualThrow'));
+check('manual throw uses ThrowDecision writer',/setThrowTarget\s*\(/.test(manualBody)&&!/throwPlay\.target\s*=/.test(manualBody),'manual boundary');
+check('throw decision is recorded',/decisionSource/.test(script)&&/decisionSeq/.test(script),'decision audit');
 const failed=checks.filter(x=>!x.ok);
 console.log(JSON.stringify({file,build,metrics:{directGoal,directAutoGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
 if(failed.length) process.exit(1);

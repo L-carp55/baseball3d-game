@@ -888,6 +888,51 @@
     out.test36_通過済み目標=res;
   })();
 
+  // ===== test37: ThrowDecision固定規則 =====
+  (function(){
+    const chk=[];
+    try{
+      newGame(); const f=fielders.find(x=>x.n==='遊');
+      const manual=decideThrowTarget(f,{kind:'ground',manualTarget:'P'});
+      chk.push({n:'手動投手返球はPのまま',ok:manual.nb==='P'&&manual.locked});
+      const fly=decideThrowTarget(f,{kind:'fly',flyLead:{origin:3,mustReturn:true}});
+      chk.push({n:'フライ帰塁先固定',ok:fly.nb===3&&fly.locked});
+      const pick=decideThrowTarget(f,{kind:'pickoff',currentTarget:2});
+      chk.push({n:'牽制は現在塁固定',ok:pick.nb===2&&pick.locked});
+      const relay=decideThrowTarget(f,{kind:'ground',currentTarget:4,relayed:true});
+      chk.push({n:'中継後は元送球先固定',ok:relay.nb===4&&relay.locked});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    const bad=chk.filter(x=>!x.ok);
+    out.test37_ThrowDecision固定規則={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test38: 同一可視状態なら捕球時/リリース時で同じ自動判断 =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.outs=0; S.preOuts=0;
+      const r=makeRunner(0.35,1,0,26); r.obsDir=1; r.v=22; runners=[r];
+      const f=fielders.find(x=>x.n==='遊');
+      const a=decideThrowTarget(f,{kind:'ground'});
+      const b=decideThrowTarget(f,{kind:'ground'});
+      res={catchTarget:a.nb,releaseTarget:b.nb,verdict:a.nb===b.nb?'PASS':'FAIL'};
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    out.test38_ThrowDecision一貫性=res;
+  })();
+
+  // ===== test39: 手動P指定をtransfer中に一塁へ変換しない =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.half=1; manualThrow=null;
+      throwPlay={stage:'transfer',target:2,decisionSource:'test',decisionSeq:1};
+      setManualThrow('P');
+      res={target:throwPlay.target,source:throwPlay.decisionSource,verdict:throwPlay.target==='P'?'PASS':'FAIL'};
+      throwPlay=null; manualThrow=null;
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    out.test39_手動投手返球=res;
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
