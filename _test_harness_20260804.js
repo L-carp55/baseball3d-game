@@ -594,6 +594,40 @@
     out.test22_重複アウト表示=res;
   })();
 
+  // ===== test23: 手遅れの本塁送球より後続走者を封じる（OI-247） =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.outs=2; S.preOuts=0;
+      const home={origin:3,p:3.90,goal:4,autoGoal:4,dir:1,v:23,sp:23,out:false};
+      const batter={origin:0,p:1.02,goal:1,autoGoal:1,dir:0,v:0,sp:23,out:false};
+      runners=[home,batter];
+      const rf=fielders.find(f=>f.n==='右'); rf.cx=170; rf.cy=170;
+      const oldTE=window.throwETAof, oldRE=window.runnerETA;
+      try{
+        window.throwETAof=(f,b)=>b===4?2.40:1.20;
+        window.runnerETA=(r,b)=>r===home&&b===4?0.40:99;
+        const pick=chooseThrowTarget(rf);
+        res={target:pick&&pick.nb,expected:2,verdict:(pick&&pick.nb===2)?'PASS':'FAIL'};
+      }finally{ window.throwETAof=oldTE; window.runnerETA=oldRE; }
+    }catch(e){ res={verdict:'FAIL',e:e.message}; }
+    out.test23_手遅れ本塁送球=res;
+  })();
+
+  // ===== test24: 外野手は内野手のように深くしゃがまない（OI-246） =====
+  (function(){
+    const chk=[];
+    try{
+      const of=fielderReadyPose({n:'右'}), inf=fielderReadyPose({n:'遊'}), cat=fielderReadyPose({n:'捕'});
+      chk.push({n:'外野はほぼ立位',ok:of.crouch<=0.06&&of.kneeL<=0.18});
+      chk.push({n:'内野は浅い構え',ok:inf.crouch>=0.10&&inf.crouch<=0.22});
+      chk.push({n:'捕手は低い',ok:cat.crouch>=0.40});
+      chk.push({n:'外野は内野より明確に高い',ok:of.crouch<inf.crouch*0.5});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test24_守備構え={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
