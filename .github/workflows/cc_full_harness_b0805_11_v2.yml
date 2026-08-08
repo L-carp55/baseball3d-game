@@ -29,7 +29,7 @@ jobs:
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
           timeout 240 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/h.html > /tmp/dom.txt 2>/tmp/chrome.err || { cat /tmp/chrome.err; exit 1; }
-      - name: Assert 22 PASS
+      - name: Assert 24 PASS
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -42,5 +42,5 @@ jobs:
           out=json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
           bad={k:v for k,v in out.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'count':len(out),'failed':bad},ensure_ascii=False,indent=2))
-          if len(out)!=22 or bad: raise SystemExit(1)
+          if len(out)!=24 or bad: raise SystemExit(1)
           PY
