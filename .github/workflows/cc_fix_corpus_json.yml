@@ -1,0 +1,41 @@
+name: Repair recording corpus JSON
+"on":
+  push:
+    branches: ["agent/validation-recording-corpus"]
+    paths: [".github/workflows/cc_fix_corpus_json.yml"]
+permissions:
+  contents: write
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/validation-recording-corpus
+      - name: Repair and verify exact corpus
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json,hashlib
+          p=Path('validation/recording_scenarios_20260808.json')
+          s=p.read_text(encoding='utf-8')
+          assert len(s)==15023, len(s)
+          assert s.endswith(']]}'), s[-20:]
+          s=s[:-1]+']}'
+          # remove the deliberate Python string quote artifact above safely
+          s=s[:-1]
+          data=json.loads(s)
+          assert len(data['plays'])==138
+          sha=hashlib.sha256(s.encode()).hexdigest()
+          assert sha=='74144e093488943f6ff2621b2e18aca8d76ca5c63cfdee1333f0f42f0223a487', sha
+          p.write_text(s,encoding='utf-8')
+          print({'chars':len(s),'plays':len(data['plays']),'sha256':sha})
+          PY
+      - name: Commit repair
+        run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add validation/recording_scenarios_20260808.json
+          git diff --cached --check
+          git commit -m "fix: repair recording corpus JSON"
+          git push origin HEAD:agent/validation-recording-corpus
