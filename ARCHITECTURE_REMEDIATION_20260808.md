@@ -201,11 +201,24 @@ Phase 3完了後のラチェット:
 - `coverBase`直接書き込み: 13 → **2**（clear/assign API内に各1）
 - 役割奪取・元カバー消失・壁反射旧担当捕球の専用テストと変異検査をCIへ追加する。
 
-### Phase 4: ReachModel
+### Phase 4: ReachModel基盤 — BUILD b0805-17
 
-- ETA計算の重複を一つにする。
-- 方向転換コストを入れる。
-- 追跡1000打球の余分距離分布を回帰基準にする。
+本PRで実施する。
+
+- `reachTimeToPoint`を到達時刻の唯一の公開モデルとして追加する。
+- 反応時間、加速、現在速度のクレジット、捕球半径、速度係数、方向転換コストを共通化する。
+- `planPlay / interceptPoint / routeProb / coverArrival / 自分で踏む判断`を共通モデルへ移す。
+- 動的再計画では、現在の走行方向から180度反転する場合に最大0.30秒の減速・再加速コストを課す。
+- architecture guardで、`runTime`の直接利用をReachModel内部だけに限定する。
+
+Phase 4基盤完了後のラチェット:
+
+- production内の`runTime`利用: 7経路 → **1経路**（`reachTravelTime`内部）
+- 到達判定を持つ主要4関数: 全て`reachTimeToPoint`を利用
+
+後続:
+
+- 追跡1000打球の余分距離分布をb0805-16と比較し、再照準の採用条件を統計的に詰める。
 
 ### Phase 5: ThrowDecision
 

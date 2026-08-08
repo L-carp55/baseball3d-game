@@ -87,6 +87,16 @@ const selectPos=keysBody.indexOf('if(r.origin>=4 || !selected(r)) return;');
 const batterPos=keysBody.indexOf('if(r.origin===0){');
 check('selection gate precedes batter special case',selectPos>=0&&batterPos>=0&&selectPos<batterPos,{selectPos,batterPos});
 
+const runTimeUses=count(/\brunTime\s*\(/g,clean);
+check('runTime is only defined and used inside reachTravelTime',runTimeUses===2,runTimeUses);
+const travelBody=stripComments(extractFunction('reachTravelTime'));
+check('reachTravelTime owns runTime usage',count(/\brunTime\s*\(/g,travelBody)===1,
+  (travelBody.match(/\brunTime\s*\(/g)||[]).length);
+for(const name of ['interceptPoint','routeProb','planPlay','coverArrival']){
+  const body=stripComments(extractFunction(name));
+  check(`${name} uses ReachModel`,/reachTimeToPoint\s*\(/.test(body),name);
+  check(`${name} has no direct runTime`,!/\brunTime\s*\(/.test(body),name);
+}
 const rundownBody=stripComments(extractFunction('rundownCover'));
 check('rundownCover uses constrained candidate API',/findCoverCandidate\(/.test(rundownBody)&&!/\.coverBase\s*=/.test(rundownBody),'candidate API');
 const wallGuard=/if\(handoff\.changed\) return false;/.test(script);
