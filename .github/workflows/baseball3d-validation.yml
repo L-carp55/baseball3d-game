@@ -3,7 +3,7 @@ name: Baseball3D validation corpus
 "on":
   push:
     branches:
-      - "agent/validation-recording-corpus"
+      - "agent/validation-b0805-21"
     paths:
       - "baseball3d.html"
       - "validation/**"
