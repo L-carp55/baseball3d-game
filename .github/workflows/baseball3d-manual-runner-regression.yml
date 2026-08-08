@@ -76,10 +76,10 @@ jobs:
               return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
           b=load('baseline')
           bad={k:v for k,v in b.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
-          if len(b)!=46 or bad: raise SystemExit('baseline failed: '+repr(bad))
+          if len(b)!=45 or bad: raise SystemExit('baseline failed: '+repr(bad))
           for n in ['mut44s','mut44x']:
-              x=load(n)['test44_高フライ手動走塁優先']
+              x=load(n)['test28_個別走者選択']
               print(n,x)
               if x.get('verdict')!='FAIL': raise SystemExit(n+' escaped')
-          print('manual S/X behavioral mutations detected')
+          print('manual S/X behavioral mutations detected through canonical test28')
           PY
