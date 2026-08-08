@@ -47,8 +47,20 @@ check('goal writer lives inside setRunnerIntent',
 check('autoGoal writer lives inside setRunnerIntent',
   count(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g,intentBody)===1,
   (intentBody.match(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g)||[]).length);
-check('fielding primary direct-write ratchet <=9',directPrimary<=9,directPrimary);
-check('coverBase direct-write ratchet <=13',directCover<=13,directCover);
+check('fielding primary has exactly two writes in setPrimaryFielder',directPrimary===2,directPrimary);
+const primaryBody=stripComments(extractFunction('setPrimaryFielder'));
+check('all primary writes live in setPrimaryFielder',
+  count(/\b(?:ball|[A-Za-z_$][\w$]*)\.primary\s*=(?!=)/g,primaryBody)===2,
+  (primaryBody.match(/\b(?:ball|[A-Za-z_$][\w$]*)\.primary\s*=(?!=)/g)||[]).length);
+check('coverBase has exactly two writes in assignment API',directCover===2,directCover);
+const clearCoverBody=stripComments(extractFunction('clearCoverRole'));
+const assignCoverBody=stripComments(extractFunction('assignCoverRole'));
+check('cover clear writer lives in clearCoverRole',
+  count(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g,clearCoverBody)===1,
+  (clearCoverBody.match(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g)||[]).length);
+check('cover assign writer lives in assignCoverRole',
+  count(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g,assignCoverBody)===1,
+  (assignCoverBody.match(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g)||[]).length);
 check('play lifecycle call ratchet <=10',concludeCalls<=10,concludeCalls);
 
 for(const name of ['applyRunnerKeys','updateStealCommands']){
@@ -75,6 +87,12 @@ const selectPos=keysBody.indexOf('if(r.origin>=4 || !selected(r)) return;');
 const batterPos=keysBody.indexOf('if(r.origin===0){');
 check('selection gate precedes batter special case',selectPos>=0&&batterPos>=0&&selectPos<batterPos,{selectPos,batterPos});
 
+const rundownBody=stripComments(extractFunction('rundownCover'));
+check('rundownCover uses constrained candidate API',/findCoverCandidate\(/.test(rundownBody)&&!/\.coverBase\s*=/.test(rundownBody),'candidate API');
+const wallGuard=/if\(handoff\.changed\) return false;/.test(script);
+check('wall handoff ends stale-primary tick',wallGuard,wallGuard);
+const resetBody=stripComments(extractFunction('resetFielders'));
+check('reset clears all fielding assignments',/clearFieldingAssignments\(/.test(resetBody),'reset boundary');
 const failed=checks.filter(x=>!x.ok);
 console.log(JSON.stringify({file,build,metrics:{directGoal,directAutoGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
 if(failed.length) process.exit(1);

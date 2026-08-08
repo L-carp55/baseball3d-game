@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-15';
+const BUILD = 'b0805-16';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -124,7 +124,8 @@ function recTick(dt){
       `${r.origin}:${r2(r.p)}→${r2(r.goal)}${r.out?'X':''}${r.cmd||''}${r.mustReturn?'R':''}${r.tagUp?'T':''}`),
     intent: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r.intentSource||'legacy'}#${r.intentSeq||0}:d${runnerObservedDir(r)}`),
-    fld: fielders.map(f=>`${f.n}${r2(f.cx)},${r2(f.cy)}${f.primary?'*':''}${f.coverBase!=null?('c'+f.coverBase):''}`)
+    fld: fielders.map(f=>`${f.n}${r2(f.cx)},${r2(f.cy)}${f.primary?'*':''}${f.coverBase!=null?('c'+f.coverBase):''}`),
+    role: fielders.map(f=>`${f.n}:${f.roleSource||'legacy'}#${f.roleSeq||0}`)
   });
   if(REC.cur.f.length>400) REC.cur.f.shift();   // 1プレー40秒ぶんで頭打ち
 }
@@ -135,7 +136,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / fld="位置x,y" *=打球担当 c1=一塁カバー',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -927,7 +928,8 @@ function buildFielders(team){
     const h=POS_HOME[p.pos]||POS_HOME['投'];
     return {n:p.pos, name:p.n, x:h.x, y:h.y,
       sp:A.speed(p.走)*(FIELD_SP[p.pos]||0.88), zone:A.zone(p.守), arm:A.arm(p.肩), fld:p.守, cat:p.捕, acc:(p.送!=null?p.送:60),
-      cx:h.x, cy:h.y, tx:h.x, ty:h.y, primary:false, run:0, face:0, v:0};
+      cx:h.x, cy:h.y, tx:h.x, ty:h.y, primary:false, coverBase:null,
+      roleSource:'init', roleSeq:0, run:0, face:0, v:0};
   });
 }
 const LINEUP = {
@@ -963,6 +965,7 @@ const inZone=(x,y)=> Math.abs(x)<ZX+0.05 && y>ZY0-0.05 && y<ZY1+0.05;
 
 /* ========================= 状態 ========================= */
 let S, ball=null, fielders=[], runners=[], pitch=null, throwAnim=null;
+let FIELD_ASSIGN_SEQ=0;
 let aim={x:0, y:2.5};
 let cam={eye:[0,7.0,-11.5], at:[0,2.9,10], teye:[0,7.0,-11.5], tat:[0,2.9,10]};
 let anim={swing:-1, wind:-1, t:0};
@@ -1264,14 +1267,12 @@ function deflectBall(f, dive01, ground){
   ball.dPrev=undefined; ball.dMin=undefined;
   f.stun = (ground?0.30:0.30+0.55*dive01);
   const plan = planPlay(ball, true);
-  const freed = plan.f.coverBase;
   /* はじいた直後の計画は当てにしない（弾かれた球の転がりは予測とずれやすい）。
      計画時刻(planT)を先に置くと、その間は再照準が封じられ、外れた地点で野手が
      立ち尽くす（実測: エラー後に1.2秒棒立ち、録画172217）。すぐ再照準できるようにする。 */
-  ball.primary = plan.f; ball.planT = ball.t + Math.min(plan.t, 0.25); plan.f.coverBase = null;
-  fielders.forEach(x=>{ x.primary=(x===plan.f); });
-  setTarget(plan.f, plan.x, plan.y);
-  if(freed!=null) rundownCover(freed, plan.f);
+  const handoff=setPrimaryFielder(plan.f,'deflect',[plan.x,plan.y]);
+  ball.planT = ball.t + Math.min(plan.t, 0.25);
+  if(handoff.freed!=null) rundownCover(handoff.freed,plan.f);
 }
 /* 守備力による守備範囲の差。反応の速さとして効かせる（平均50でちょうど F_REACT）。
    以前は zone を計算だけして使っておらず、守備力を変えても打球への到達が変わらなかった。 */
@@ -1432,6 +1433,74 @@ function clampField(x,y){
   return d>max ? [x/d*max, y/d*max] : [x,y];
 }
 function setTarget(f,x,y){ const p=clampField(x,y); f.tx=p[0]; f.ty=p[1]; }
+/* 守備役割の唯一の書き手群。primaryとcoverBaseを別々の場面コードから変更すると、
+   旧役割が消えたり、一人が二役になったり、担当表示と捕球判定が食い違う。
+   roleSource/roleSeqを録画へ残し、役割変更を原子的に追跡できるようにする。 */
+function markFieldRole(f,source){
+  if(!f) return;
+  f.roleSource=source||'assignment';
+  f.roleSeq=++FIELD_ASSIGN_SEQ;
+}
+function clearCoverRole(f,source){
+  if(!f) return null;
+  const old=f.coverBase==null?null:f.coverBase;
+  if(old!=null){
+    f.coverBase=null;
+    markFieldRole(f,source||'cover-clear');
+  }
+  return old;
+}
+function assignCoverRole(f,base,source){
+  if(!f || f.primary) return false;
+  if(f.coverBase!=null && f.coverBase!==base) return false;
+  f.coverBase=base;
+  markFieldRole(f,source||'cover');
+  const p=throwPoint(base); setTarget(f,p[0],p[1]);
+  return true;
+}
+function clearAllCoverRoles(source){
+  fielders.forEach(f=>clearCoverRole(f,source||'cover-reset'));
+}
+function setPrimaryFielder(next,source,target){
+  const previous=ball?ball.primary:null;
+  const freed=next?clearCoverRole(next,(source||'primary')+'-leave-cover'):null;
+  if(ball) ball.primary=next||null;
+  fielders.forEach(f=>{ f.primary=(f===next); });
+  if(next){
+    markFieldRole(next,source||'primary');
+    if(target) setTarget(next,target[0],target[1]);
+  }
+  return {previous,changed:previous!==next,freed};
+}
+function clearFieldingAssignments(source){
+  setPrimaryFielder(null,source||'assignment-reset');
+  clearAllCoverRoles(source||'assignment-reset');
+}
+function findCoverCandidate(base,excluded){
+  const ex=new Set((excluded||[]).filter(Boolean)), p=throwPoint(base);
+  let same=null,free=null,sd=1e9,fd=1e9;
+  fielders.forEach(f=>{
+    if(ex.has(f) || f.primary) return;
+    if(f.coverBase!=null && f.coverBase!==base) return;
+    const d=Math.hypot(p[0]-f.cx,p[1]-f.cy);
+    if(f.coverBase===base){ if(d<sd){sd=d;same=f;} }
+    else if(d<fd){fd=d;free=f;}
+  });
+  return same||free;
+}
+/* 中継などの一時役割へ野手を出す時、元のカバーを先に別野手へ移す。
+   代役がいなければ元担当を維持し、塁を無人にしてまで引き抜かない。 */
+function releaseCoverForTemporaryRole(f,source,excluded){
+  if(!f || f.primary) return false;
+  const old=f.coverBase==null?null:f.coverBase;
+  if(old==null) return true;
+  const replacement=findCoverCandidate(old,[f,...(excluded||[])]);
+  if(!replacement) return false;
+  clearCoverRole(f,(source||'temporary')+'-release');
+  if(replacement.coverBase!==old)
+    assignCoverRole(replacement,old,(source||'temporary')+'-replacement');
+  return true;
+}
 function moveFielders(dt, running){
   fielders.forEach(f=>{
     if(f.diveT>0) f.diveT-=dt;      // 飛び込み・跳びの見た目タイマー
@@ -2056,17 +2125,16 @@ function updateThrowPhase(dt){
         /* 中継はベースカバーに入っていない野手を優先する。カバー中の野手を引き抜くと
            返球の間その塁が無人になる。他に居なければ引き抜くが、その塁は別の野手が埋める。 */
         const pick = (freeOnly)=>{ let cut=null,cd=1e9;
-          fielders.forEach(f=>{ if(f===T.thrower) return;
+          fielders.forEach(f=>{ if(f===T.thrower || f===recv || f.primary) return;
             if(freeOnly && f.coverBase!=null) return;
+            if(!freeOnly && f.coverBase!=null &&
+               !findCoverCandidate(f.coverBase,[f,T.thrower,recv])) return;
             const t=Math.hypot(p[0]-f.cx,p[1]-f.cy)+Math.hypot(f.cx-T.thrower.cx,f.cy-T.thrower.cy);
             if(t<cd && Math.hypot(f.cx-T.thrower.cx,f.cy-T.thrower.cy)<maxD){ cd=t; cut=f; } });
           return cut; };
         const cut = pick(true) || pick(false);
-        if(cut){
-          const freed = cut.coverBase;
-          cut.coverBase=null;
+        if(cut && releaseCoverForTemporaryRole(cut,'relay',[T.thrower,recv])){
           recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;
-          if(freed!=null) rundownCover(freed, cut);      // 抜けた塁は別の野手が埋める
         }
       }
       /* 送球のそれ。送球精度(送)が低いほど狙いから外れる。判定の基準点(T.dest)は
@@ -2081,9 +2149,9 @@ function updateThrowPhase(dt){
       if(T.target===4 && farLaunch>158){
         const cutN = (T.thrower.cx < -30) ? '三' : '一';
         const cut = fielders.find(x=>x.n===cutN);
-        if(cut && cut!==T.thrower && cut!==recv && !cut.primary){
+        if(cut && cut!==T.thrower && cut!==recv && !cut.primary &&
+           releaseCoverForTemporaryRole(cut,'home-cutoff',[T.thrower,recv])){
           const cd = Math.max(1, Math.hypot(T.thrower.cx-p[0], T.thrower.cy-p[1]));
-          cut.coverBase=null;
           setTarget(cut, p[0]+(T.thrower.cx-p[0])/cd*45, p[1]+(T.thrower.cy-p[1])/cd*45);
         }
       }
@@ -2243,12 +2311,11 @@ function updateThrowPhase(dt){
    挟殺は野手が入れ替わりながら追い込むプレーで、最初の担当がボールを持って
    反対側にいることが普通にある。割り当て固定だと誰もいない塁へ投げてしまう。 */
 function rundownCover(base, exclude, exclude2){
-  const p=throwPoint(base);
-  let best=null,bd=1e9;
-  fielders.forEach(f=>{ if(f===exclude || f===exclude2) return;
-    const d=Math.hypot(p[0]-f.cx,p[1]-f.cy); if(d<bd){bd=d;best=f;} });
-  if(best){ best.coverBase=base; setTarget(best,p[0],p[1]); }
-  return best||fielders[0];
+  const best=findCoverCandidate(base,[exclude,exclude2]);
+  if(!best) return null;
+  if(best.coverBase!==base) assignCoverRole(best,base,'rundown-cover');
+  else{ const p=throwPoint(base); setTarget(best,p[0],p[1]); }
+  return best;
 }
 function coverOf(base, exclude){
   /* その塁のカバーに入っている野手が受け手。打った瞬間に割り当ててある。
@@ -2256,11 +2323,9 @@ function coverOf(base, exclude){
      実際には50ft離れているのに塁上でアウトが宣告される。 */
   const assigned=fielders.find(f=>f!==exclude && f.coverBase===base);
   if(assigned) return assigned;
-  const p=throwPoint(base);
-  let best=null,bd=1e9;
-  fielders.forEach(f=>{ if(f===exclude) return;
-    const d=Math.hypot(p[0]-f.cx,p[1]-f.cy); if(d<bd){bd=d;best=f;} });
-  return best||fielders[0];
+  const created=rundownCover(base,exclude);
+  if(created) return created;
+  return fielders.find(f=>f!==exclude&&!f.primary)||fielders[0];
 }
 function beginRundown(r, hi){
   const T=throwPlay;
@@ -2311,6 +2376,11 @@ function updateRundown(dt){
       const chasing = goingHi ? R.hi : R.lo;       // 走者が向かっている側
       const recv=rundownCover(chasing, R.holder);
       const p=throwPoint(chasing);
+      if(!recv){
+        setTarget(R.holder,p[0],p[1]);
+        if(R.t>9) return timeoutRundown();
+        return;
+      }
       /* 受け手が塁に入っていなければ投げない。投げると球が塁の上で止まり、
          受け手が着くまで判定が出ない（見た目も結果もおかしくなる）。
          受け手が着くまでは自分がその塁へ詰める。自分の方が先に着くならそのまま踏む。 */
@@ -2791,7 +2861,9 @@ function startFlight(c, powerMul, from){
     ss: clamp(-c.spray/38, -1.2, 1.2),
     exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false };
   const plan=planPlay(ball);
-  ball.pred=plan.firstLand; ball.primary=plan.f; ball.canCatchAir=plan.air; ball.planT=plan.t;
+  ball.pred=plan.firstLand; ball.canCatchAir=plan.air; ball.planT=plan.t;
+  clearAllCoverRoles('batted-ball-reset');
+  setPrimaryFielder(plan.f,'batted-ball',[plan.x,plan.y]);
   window.__contactGo=!plan.air;      // 空中で捕られない打球＝押し出される走者は打った瞬間に走る
   /* 打った瞬間に、捕る人以外は自分の受け持つ塁のカバーへ走る。
      これをしないと送球が届いた時にベースに誰もいない（受け手不在になる）。
@@ -2800,14 +2872,13 @@ function startFlight(c, powerMul, from){
      一塁手がゴロを捕りに出たら投手が一塁に入る（実際の野球と同じ）。
      これが無いと、一塁へ送球しても受け手が50ft離れた所にいて、
      誰も塁を踏んでいないのにアウトになる。 */
-  fielders.forEach(f=>{ f.primary=(f===plan.f); });
+  // primaryはsetPrimaryFielderで確定済み
   const byName = n => fielders.find(f=>f.n===n);
   const assigned = new Set(fielders.filter(f=>f.primary));
   // 1人が2つの塁を掛け持ちしないよう、埋まった順に外して割り当てる
   const take = names => { for(const n of names){ const f=byName(n);
     if(f && !assigned.has(f)){ assigned.add(f); return f; } } return null; };
-  fielders.forEach(f=>{ f.coverBase=null; });
-  const put = (b, names) => { const f=take(names); if(f){ f.coverBase=b; const p=throwPoint(b); setTarget(f,p[0],p[1]); } };
+  const put = (b,names)=>{ const f=take(names); if(f) assignCoverRole(f,b,'batted-ball-cover'); };
   put(1, ['一','投','二']);          // 一塁手が捕りに出たら投手が入る
   put(3, ['三','遊','投']);          // 三塁手が捕りに出たら遊撃手が入る
   /* 二塁のカバーは打球と反対側の中間手が入る（実際の野球の約束事）。
@@ -2948,12 +3019,10 @@ function stepFlight(dt){
     if(Math.hypot(ball.x-prim.cx, ball.y-prim.cy) > CATCH_R + 3 && !approaching){
       const plan2 = planPlay(ball, true);          // 今いる場所から測り直す
       if(plan2.f !== prim){
-        const freed = plan2.f.coverBase;
-        ball.primary = plan2.f; ball.planT = ball.t + plan2.t;
+        const handoff=setPrimaryFielder(plan2.f,'rolling-handoff',[plan2.x,plan2.y]);
+        const freed=handoff.freed;
+        ball.planT = ball.t + plan2.t;
         ball.dPrev = undefined; ball.dMin = undefined;
-        fielders.forEach(f=>{ f.primary=(f===plan2.f); });
-        plan2.f.coverBase = null;
-        setTarget(plan2.f, plan2.x, plan2.y);
         /* 空いた塁を埋める時、直前まで打球を追っていた野手(prim)は除外する。
            「一番近い野手」で選ぶと、球のすぐそばにいる旧担当が選ばれてしまい、
            捕る寸前だったサードが急に三塁カバーへ走り出す（録画で確認）。 */
@@ -2967,7 +3036,7 @@ function stepFlight(dt){
             let bb=open[0], bd=1e9;
             open.forEach(b=>{ const p=throwPoint(b); const q=Math.hypot(p[0]-prim.cx,p[1]-prim.cy);
               if(q<bd){ bd=q; bb=b; } });
-            prim.coverBase=bb; const p=throwPoint(bb); setTarget(prim,p[0],p[1]);
+            assignCoverRole(prim,bb,'old-primary-cover');
           }else{
             const m=Math.hypot(ball.vx,ball.vy)||1;
             setTarget(prim, plan2.x+ball.vx/m*18, plan2.y+ball.vy/m*18);
@@ -3049,12 +3118,13 @@ function stepFlight(dt){
       ball.x = nx*(fd-0.6); ball.y = ny*(fd-0.6);
       ball.canCatchAir = false;                      // 壁に当たった球はもう捕球できない
       const plan=planPlay(ball, true);       // 反射後は「今いる場所」から測り直す
-      const freedW = plan.f.coverBase;
-      ball.primary=plan.f; ball.planT=ball.t+plan.t;
+      const handoff=setPrimaryFielder(plan.f,'wall-handoff',[plan.x,plan.y]);
+      ball.planT=ball.t+plan.t;
       ball.dPrev=undefined; ball.dMin=undefined;   // 担当が変わったら最接近の記録もやり直す
-      plan.f.coverBase=null;
-      fielders.forEach(f=>{ f.primary=(f===plan.f); if(f.primary) setTarget(f, plan.x, plan.y); });
-      if(freedW!=null) rundownCover(freedW, plan.f);   // カバーを外れた塁は別の野手が埋める
+      if(handoff.freed!=null) rundownCover(handoff.freed,plan.f);   // カバーを外れた塁は別の野手が埋める
+      /* この刻みのprimは反射前の旧担当を指している。交代したならここで刻みを終え、
+         次の物理刻みで新担当を再取得する（Sol Ultra所見4の旧担当捕球を防ぐ）。 */
+      if(handoff.changed) return false;
     }
   }
   /* 捕れる範囲＝グラブが届く距離だけ。広くすると「追いつけていないのに横を通過した球」まで
@@ -3299,6 +3369,7 @@ function foulBall(){
   S.phase='msg'; S.timer=0.9; snapCam(); ui();
 }
 function resetFielders(){
+  clearFieldingAssignments('reset');
   /* 前進守備（セオリー準拠 2026-08-04導入）: 三塁走者あり・2死未満なら内野は前へ
      ＝ゴロで本塁へ投げて1点を防ぐ体勢。2死では取らない（どこでアウトを取っても
      攻撃終了なので、ヒットゾーンを広げる前進の損しかない）。
@@ -3307,7 +3378,7 @@ function resetFielders(){
   fielders.forEach(f=>{
     const k = ('一二三遊'.includes(f.n)) ? inField : 1.0;
     f.cx=f.x*k; f.cy=f.y*k; f.tx=f.cx; f.ty=f.cy;
-    f.primary=false; f.face=0; f.v=0; f.stun=0; f.fumbled=false; f.run=0;
+    f.face=0; f.v=0; f.stun=0; f.fumbled=false; f.run=0;
   });
 }
 // 攻守交代で守備陣を入れ替える
@@ -3466,10 +3537,10 @@ function beginPickoff(){
   if(!jump){ S.phase='windup'; S.timer=0.3; return; }
   runners.forEach(r=>{ if(r.jumped)
     setRunnerIntent(r,r.origin,{source:'pickoff-return',force:true,updateAuto:false,cmd:null}); });   // 戻るしかない
-  fielders.forEach(f=>{ f.coverBase=null; });
+  clearAllCoverRoles('pickoff-reset');
   const map={1:'一',2:'遊',3:'三',4:'捕'};
   [1,2,3,4].forEach(b=>{ const f=fielders.find(x=>x.n===map[b]);
-    if(f){ f.coverBase=b; const p=throwPoint(b); setTarget(f,p[0],p[1]); } });
+    if(f) assignCoverRole(f,b,'pickoff-cover'); });
   ball={x:pit.cx, y:pit.cy, z:4.4, t:0, vx:0, vy:0, vz:0, landed:false, maxZ:0};
   throwPlay={ stage:'transfer', t:0, transfer:0.18,
     thrower:pit, kind:'pickoff', award:0, target:jump.origin, relayed:false, fieldT:0,
@@ -4209,10 +4280,10 @@ function updateStealCommands(){
      カバーが間に合わず、アウトのタイミングでもセーフになってしまう。 */
   if(S.stealing && !S.stealCover){
     S.stealCover=true;
-    fielders.forEach(f=>{ f.coverBase=null; });
+    clearAllCoverRoles('steal-reset');
     const map={1:'一',2:'遊',3:'三',4:'投'};
     [1,2,3,4].forEach(b=>{ const f=fielders.find(x=>x.n===map[b]);
-      if(f){ f.coverBase=b; const p=throwPoint(b); setTarget(f,p[0],p[1]);
+      if(f && assignCoverRole(f,b,'steal-cover')){
         /* 内野手は投手が投げる動作の間に塁側へ寄っている。完全な静止から走り出すのではない。
            ここを止まった状態にすると、カバーが塁に着く前に送球が届いてしまい、
            足の遅い走者でも盗塁が成功する。 */
