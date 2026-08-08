@@ -1,7 +1,7 @@
 "use strict";
 const fs=require('fs');
 const path=require('path');
-const file=path.join(__dirname,'baseball3d.html');
+const file=process.argv[2] ? path.resolve(process.argv[2]) : path.join(__dirname,'baseball3d.html');
 const html=fs.readFileSync(file,'utf8');
 const script=(html.split('<script>')[1]||'').split('</script>')[0];
 if(!script) throw new Error('main script not found');
@@ -34,10 +34,19 @@ const build=(script.match(/const BUILD = '([^']+)'/)||[])[1];
 check('BUILD stamp present',/^b\d{4}-\d+$/.test(build||''),build);
 
 const directGoal=count(/\b[A-Za-z_$][\w$]*\.goal\s*=(?!=)/g,clean);
+const directAutoGoal=count(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g,clean);
 const directPrimary=count(/\b(?:ball|[A-Za-z_$][\w$]*)\.primary\s*=(?!=)/g,clean);
 const directCover=count(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g,clean);
 const concludeCalls=Math.max(0,count(/\bconcludePlay\s*\(/g,clean)-1); // subtract definition
-check('runner goal direct-write ratchet <=15',directGoal<=15,directGoal);
+check('runner goal has exactly one writer',directGoal===1,directGoal);
+check('runner autoGoal has exactly one writer',directAutoGoal===1,directAutoGoal);
+const intentBody=stripComments(extractFunction('setRunnerIntent'));
+check('goal writer lives inside setRunnerIntent',
+  count(/\b[A-Za-z_$][\w$]*\.goal\s*=(?!=)/g,intentBody)===1,
+  (intentBody.match(/\b[A-Za-z_$][\w$]*\.goal\s*=(?!=)/g)||[]).length);
+check('autoGoal writer lives inside setRunnerIntent',
+  count(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g,intentBody)===1,
+  (intentBody.match(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g)||[]).length);
 check('fielding primary direct-write ratchet <=9',directPrimary<=9,directPrimary);
 check('coverBase direct-write ratchet <=13',directCover<=13,directCover);
 check('play lifecycle call ratchet <=10',concludeCalls<=10,concludeCalls);
@@ -67,5 +76,5 @@ const batterPos=keysBody.indexOf('if(r.origin===0){');
 check('selection gate precedes batter special case',selectPos>=0&&batterPos>=0&&selectPos<batterPos,{selectPos,batterPos});
 
 const failed=checks.filter(x=>!x.ok);
-console.log(JSON.stringify({build,metrics:{directGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
+console.log(JSON.stringify({file,build,metrics:{directGoal,directAutoGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
 if(failed.length) process.exit(1);

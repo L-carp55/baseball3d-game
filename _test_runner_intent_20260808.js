@@ -33,4 +33,12 @@ let b2=rr(0,.2,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);ctx.runners=[b2,firs
 function pick(goal,legacyDir){ctx.runners=[{origin:2,p:2.42,goal,autoGoal:goal,obsDir:1,dir:legacyDir,v:18,sp:23,out:false}];const f={cx:0,cy:180};return ctx.chooseThrowTarget(f)?.nb;}
 assert(pick(3,1)===3&&pick(2,-1)===3,'defense goal leak');
 ctx.runners=[{origin:2,p:2.2,goal:3,autoGoal:3,obsDir:0,dir:1,v:18,sp:23,out:false}];ctx.throwPlay=null;ctx.updateRunners(1/60);const r=ctx.runners[0];assert(ctx.runnerObservedDir(r)===1,'obs forward');ctx.setManualGoal(r,2,'X');assert(ctx.runnerObservedDir(r)===1,'goal leaked before motion');ctx.updateRunners(1/60);assert(ctx.runnerObservedDir(r)===-1,'obs back');
-console.log('targeted b0805-14 PASS');
+const api=rr(1,1.1,2);api.cmd='S';
+const seq0=api.intentSeq, source0=api.intentSource;
+assert(ctx.setAutoGoal(api,3,false)===false,'auto should respect manual command');
+assert(api.autoGoal===3&&api.goal===2&&api.intentSeq===seq0&&api.intentSource===source0,'blocked auto mutated active intent');
+ctx.setManualGoal(api,2.5,'S');
+assert(api.goal===2.5&&api.autoGoal===3&&api.cmd==='S'&&api.intentSource==='manual'&&api.intentSeq===seq0+1,'manual API contract');
+ctx.setRunnerIntent(api,1,{source:'result',force:true,updateAuto:true,cmd:null});
+assert(api.goal===1&&api.autoGoal===1&&api.cmd===null&&api.intentSource==='result'&&api.intentSeq===seq0+2,'rule/result API contract');
+console.log('targeted b0805-15 PASS');

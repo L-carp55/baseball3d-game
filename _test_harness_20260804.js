@@ -735,6 +735,28 @@
     out.test29_守備と走者意図の分離={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
+  // ===== test30: RunnerIntent単一書き手APIの優先順位・記録契約（Phase 2） =====
+  (function(){
+    const chk=[];
+    try{
+      const r={origin:1,p:1.1,goal:2,autoGoal:2,extra:0,sp:23,v:0,obsDir:0,out:false,
+        cmd:'S',intentSource:'fixture',intentSeq:4};
+      const blocked=setAutoGoal(r,3,false);
+      chk.push({n:'自動判断は手動Sを上書きしない',ok:blocked===false&&r.goal===2&&r.autoGoal===3&&r.intentSeq===4&&r.intentSource==='fixture'});
+
+      setManualGoal(r,2.5,'S');
+      chk.push({n:'手動判断はactive goalだけ更新',ok:r.goal===2.5&&r.autoGoal===3&&r.cmd==='S'&&r.intentSource==='manual'&&r.intentSeq===5});
+
+      setRunnerIntent(r,1,{source:'result',force:true,updateAuto:true,cmd:null});
+      chk.push({n:'規則・結果はgoal/auto/cmdを原子的に更新',ok:r.goal===1&&r.autoGoal===1&&r.cmd===null&&r.intentSource==='result'&&r.intentSeq===6});
+
+      setRunnerIntent(r,9,{source:'result',force:true,updateAuto:false});
+      chk.push({n:'行き先は0〜4へ正規化',ok:r.goal===4&&r.autoGoal===1&&r.intentSeq===7});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test30_RunnerIntent契約={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
