@@ -1,0 +1,85 @@
+name: Baseball3D manual runner regression
+
+"on":
+  push:
+    branches:
+      - "agent/**"
+    paths:
+      - "baseball3d.html"
+      - "_test_harness_20260804.js"
+      - "_test_runner_intent_20260808.js"
+      - "_architecture_guard_20260808.js"
+      - ".github/workflows/baseball3d-manual-runner-regression.yml"
+  pull_request:
+    paths:
+      - "baseball3d.html"
+      - "_test_harness_20260804.js"
+      - "_test_runner_intent_20260808.js"
+      - "_architecture_guard_20260808.js"
+      - ".github/workflows/baseball3d-manual-runner-regression.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  manual-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static and focused contract
+        run: |
+          node --check _test_harness_20260804.js
+          node --check _test_runner_intent_20260808.js
+          node --check _architecture_guard_20260808.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+      - name: Build baseline and S/X mutations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
+          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
+          assert h.count(marker)==1
+          h=h.replace(marker,exposed,1)
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          prelude=("<script>(()=>{let s=0x71D22228>>>0;Math.random=()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};})();window.requestAnimationFrame=()=>0;</script>\n<script>\n\"use strict\";")
+          def build(src,name):
+              src=src.replace('<script>\n"use strict";',prelude,1)
+              src=src.replace('</body>',f'<script>\n{h}\n</script>\n</body>',1)
+              Path('/tmp/'+name+'.html').write_text(src,encoding='utf-8')
+          build(base,'baseline')
+          manual_s="        setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');\n        r.tagUp=false;\n"
+          assert base.count(manual_s)==1
+          build(base.replace(manual_s,"        setAutoGoal(r,r.origin<3?r.origin+0.45:r.origin,true);\n        r.tagUp=true;\n",1),'mut44s')
+          manual_x="        const backBase=r.origin>0 ? r.origin : Math.max(1,Math.floor(r.p+1e-9));\n        setManualGoal(r,backBase,'X');\n"
+          assert base.count(manual_x)==1
+          build(base.replace(manual_x,"        const backBase=r.origin>0 ? Math.min(4,r.origin+1) : Math.max(1,Math.floor(r.p+1e-9));\n        setManualGoal(r,backBase,'X');\n",1),'mut44x')
+          PY
+      - name: Run browser checks
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          test -n "$CHROME"
+          for n in baseline mut44s mut44x; do
+            timeout 240 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom "file:///tmp/$n.html" > "/tmp/$n.dom" 2> "/tmp/$n.err" || { cat "/tmp/$n.err"; exit 1; }
+          done
+      - name: Assert manual runner regression
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+          def load(n):
+              s=Path('/tmp/'+n+'.dom').read_text(encoding='utf-8',errors='replace')
+              m=re.search(r'data-harness="([^"]+)"',s)
+              if not m: raise SystemExit(n+': harness missing')
+              return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          b=load('baseline')
+          bad={k:v for k,v in b.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
+          if len(b)!=45 or bad: raise SystemExit('baseline failed: '+repr(bad))
+          for n in ['mut44s','mut44x']:
+              x=load(n)['test28_個別走者選択']
+              print(n,x)
+              if x.get('verdict')!='FAIL': raise SystemExit(n+' escaped')
+          print('manual S/X behavioral mutations detected through canonical test28')
+          PY

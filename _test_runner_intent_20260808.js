@@ -24,12 +24,15 @@ for(const n of names) vm.runInContext(extract(n),ctx,{filename:n+'.js'});
 function rr(origin,p,goal){return {origin,p,goal,autoGoal:goal,extra:0,sp:23,v:0,obsDir:0,out:false,intentSource:'fixture',intentSeq:0};}
 function clear(){for(const k of ['s','z','x','1','2','3'])ctx.held[k]=false;}
 function assert(c,m){if(!c)throw new Error(m);}
+// Human-play regression (b0805-21): on a high fly, S must advance immediately and X must return immediately; automatic halfway/tag-up logic must not reinterpret the explicit command.
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
-let batter=rr(0,1,1), lead=rr(2,2.4,3);ctx.runners=[batter,lead];clear();ctx.held.z=true;ctx.applyRunnerKeys();assert(batter.goal===1&&lead.tagUp,'Z leak');
+let batter=rr(0,1,1), lead=rr(2,2.4,3);ctx.runners=[batter,lead];clear();ctx.held.z=true;ctx.applyRunnerKeys();assert(batter.goal===1&&lead.goal===3&&lead.cmd==='S'&&lead.intentSource==='manual'&&!lead.tagUp,'Z leak');
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
-let b1=rr(0,.2,1), first=rr(1,1.08,1), third=rr(3,3.08,3);ctx.runners=[b1,first,third];clear();ctx.held['1']=ctx.held.s=true;ctx.applyRunnerKeys();assert(b1.goal===1&&Math.abs(first.goal-1.45)<1e-9&&third.goal===3,'1+S leak');
+let b1=rr(0,.2,1), first=rr(1,1.08,1), third=rr(3,3.08,3);ctx.runners=[b1,first,third];clear();ctx.held['1']=ctx.held.s=true;ctx.applyRunnerKeys();assert(b1.goal===1&&first.goal===2&&first.cmd==='S'&&first.intentSource==='manual'&&third.goal===3,'1+S leak');
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
-let b2=rr(0,.2,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);ctx.runners=[b2,first2,third2];clear();ctx.held['3']=ctx.held.s=true;ctx.applyRunnerKeys();assert(b2.goal===1&&first2.goal===1&&third2.tagUp,'3+S leak');
+let b2=rr(0,.2,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);ctx.runners=[b2,first2,third2];clear();ctx.held['3']=ctx.held.s=true;ctx.applyRunnerKeys();assert(b2.goal===1&&first2.goal===1&&third2.goal===4&&third2.cmd==='S'&&third2.intentSource==='manual','3+S leak');
+ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
+let b3=rr(0,.55,1), first3=rr(1,1.45,1.45);ctx.runners=[b3,first3];clear();ctx.held['1']=ctx.held.x=true;ctx.applyRunnerKeys();assert(b3.goal===1&&first3.goal===1&&first3.cmd==='X'&&first3.intentSource==='manual','1+X return leak');
 function pick(goal,legacyDir){ctx.runners=[{origin:2,p:2.42,goal,autoGoal:goal,obsDir:1,dir:legacyDir,v:18,sp:23,out:false}];const f={cx:0,cy:180};return ctx.chooseThrowTarget(f)?.nb;}
 assert(pick(3,1)===3&&pick(2,-1)===3,'defense goal leak');
 ctx.runners=[{origin:2,p:2.2,goal:3,autoGoal:3,obsDir:0,dir:1,v:18,sp:23,out:false}];ctx.throwPlay=null;ctx.updateRunners(1/60);const r=ctx.runners[0];assert(ctx.runnerObservedDir(r)===1,'obs forward');ctx.setManualGoal(r,2,'X');assert(ctx.runnerObservedDir(r)===1,'goal leaked before motion');ctx.updateRunners(1/60);assert(ctx.runnerObservedDir(r)===-1,'obs back');
@@ -41,4 +44,4 @@ ctx.setManualGoal(api,2.5,'S');
 assert(api.goal===2.5&&api.autoGoal===3&&api.cmd==='S'&&api.intentSource==='manual'&&api.intentSeq===seq0+1,'manual API contract');
 ctx.setRunnerIntent(api,1,{source:'result',force:true,updateAuto:true,cmd:null});
 assert(api.goal===1&&api.autoGoal===1&&api.cmd===null&&api.intentSource==='result'&&api.intentSeq===seq0+2,'rule/result API contract');
-console.log('targeted b0805-15 PASS');
+console.log('targeted b0805-22 RunnerIntent PASS');

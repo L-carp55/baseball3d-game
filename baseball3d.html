@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-21';
+const BUILD = 'b0805-22';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -4474,33 +4474,30 @@ function applyRunnerKeys(){
      2死でSを押していても二塁走者が塁間で1.5秒止まっていた（録画183631）。 */
   const tagPhase = ball && !ball.landed && ball.canCatchAir && ball.maxZ>15 && S.phase==='flight'
                    && baseOuts()<2;
-  if(go && tagPhase){
-    /* 打球が上がっている間のSの意味は、走者の塁で変わる（実際の走塁と同じ）。
-       ・三塁走者＝タッチアップ。塁を踏んだまま待ち、捕られた瞬間に走る（犠牲フライ）
-       ・一塁・二塁走者＝ハーフウェイ。塁間の半分まで出て打球を見る
-         捕られたら戻り、落ちたらそこから走る
-       全員を塁上で待たせていたため、左線に落ちる当たりでもSを押した走者が
-       打球が落ちるまで動かず、1.5秒ぶん出遅れていた（録画で確認）。 */
-    live.forEach(r=>{
-      if(r.origin>=4 || !selected(r)) return;
-      /* 選択門番は打者走者の特別処理より先に通す。以前は打者走者だけ門番の前で
-         goalを書き換え、Z・1〜3キーで別走者を選んでも巻き込んでいた（OI-088/152/165）。 */
-      /* 打者走者にタッチアップは無い（アウトになるのは自分の捕球）。フライの間も
-         Sで普通に先の塁を狙える。ハーフウェイ処理が打者を無視して早期returnしていたため、
-         フライ中はSを押しても一塁から先へ進めなかった（オーナー指摘）。 */
-      if(r.origin===0){
-        const i=live.indexOf(r), ahead=live[i+1];
+  if(tagPhase && (go||back)){
+    /* 操作契約は打球種類で変えない。HUDどおり S=今すぐ進塁、X=今すぐ帰塁。
+       b0805-21までは高フライ中だけSを「ハーフウェイ/タッチアップ準備」に読み替え、
+       1塁走者がS押下中でもmanualにならずgoal=1.45付近で止まっていた（実プレー録画で確認）。
+       Xも打者走者を後続の占有者として数える一般帰塁ロジックに流れ、一塁へ戻れなかった。
+       高フライ中の明示入力は自動戦術より優先し、タッチアップは捕球後のSで行う。 */
+    if(go){
+      live.slice().reverse().forEach((r,ri,rev)=>{
+        const ahead=ri>0 ? rev[ri-1] : null;
+        if(r.origin>=4 || !selected(r)) return;
         const here=Math.floor(r.p+1e-9);
-        /* 上限は塁単位で数える。前走者がハーフウェイ(goal=2.45等)だと
-           goal-1がそのまま1.45になり、打者が塁間の変な位置を目標にしてしまう。 */
-        const max=(ahead && ahead.goal<4) ? Math.ceil(ahead.goal-1e-9)-1 : 4;
+        const floorMax=(r.origin===0?1:0);
+        const max=(ahead && ahead.goal<4) ? Math.max(floorMax,Math.ceil(ahead.goal-1e-9)-1) : 4;
         setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
-        return;
+        r.tagUp=false;
+      });
+    }else{
+      for(const r of live){
+        if(r.origin>=4 || !runnerSelectedForCommand(r,false,lead,picked)) continue;
+        r.tagUp=false;
+        const backBase=r.origin>0 ? r.origin : Math.max(1,Math.floor(r.p+1e-9));
+        setManualGoal(r,backBase,'X');
       }
-      // 選択門番は上で全走者共通に適用済み
-      r.tagUp=true;
-      if(r.origin<3) setAutoGoal(r, r.origin+0.45, true);   // ハーフウェイ
-    });
+    }
     return;
   }
   /* Xを押したらタッチアップの構えは取り消す。取り消せないままだと、

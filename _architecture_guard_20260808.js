@@ -83,9 +83,12 @@ clean.split('\n').forEach((line,i)=>{if(/\br\.dir\b/.test(line))dirUses.push({li
 check('legacy dir is write-only inside updateRunners',dirUses.length===1&&/r\.dir\s*=/.test(dirUses[0].text),dirUses);
 
 const keysBody=stripComments(extractFunction('applyRunnerKeys'));
-const selectPos=keysBody.indexOf('if(r.origin>=4 || !selected(r)) return;');
-const batterPos=keysBody.indexOf('if(r.origin===0){');
-check('selection gate precedes batter special case',selectPos>=0&&batterPos>=0&&selectPos<batterPos,{selectPos,batterPos});
+const manualTagPos=keysBody.indexOf('if(tagPhase && (go||back)){');
+const genericBackPos=keysBody.indexOf('if(back) live.forEach');
+check('high-fly manual S/X uses shared selection and manual intent',
+  manualTagPos>=0 && genericBackPos>manualTagPos &&
+  /!selected\(r\)/.test(keysBody) && count(/setManualGoal\s*\(/g,keysBody)>=4,
+  {manualTagPos,genericBackPos,manualCallsInKeys:count(/setManualGoal\s*\(/g,keysBody)});
 
 const runTimeUses=count(/\brunTime\s*\(/g,clean);
 check('runTime is only defined and used inside reachTravelTime',runTimeUses===2,runTimeUses);

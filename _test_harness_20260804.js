@@ -689,17 +689,24 @@
       setup();
       const batter=rr(0,1.00,1), lead=rr(2,2.40,3); runners=[batter,lead]; held['z']=true;
       applyRunnerKeys();
-      chk.push({n:'Zで先頭だけ・打者不変',ok:batter.goal===1&&lead.tagUp===true});
+      chk.push({n:'Zで先頭だけ・打者不変',ok:batter.goal===1&&lead.goal===3&&lead.cmd==='S'&&lead.intentSource==='manual'&&!lead.tagUp});
 
       setup();
       const b1=rr(0,0.20,1), first=rr(1,1.08,1), third=rr(3,3.08,3);
       runners=[b1,first,third]; held['1']=true; held['s']=true; applyRunnerKeys();
-      chk.push({n:'1+Sで一塁走者だけ',ok:b1.goal===1&&Math.abs(first.goal-1.45)<1e-9&&third.goal===3});
+      chk.push({n:'1+Sで一塁走者だけ',ok:b1.goal===1&&first.goal===2&&first.cmd==='S'&&first.intentSource==='manual'&&third.goal===3});
+      chk.push({n:'S手動意図を自動帰塁が上書きしない',ok:setAutoGoal(first,1)===false&&first.goal===2});
 
       setup();
       const b2=rr(0,0.20,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);
       runners=[b2,first2,third2]; held['3']=true; held['s']=true; applyRunnerKeys();
-      chk.push({n:'3+Sで三塁走者だけ',ok:b2.goal===1&&first2.goal===1&&third2.goal===3&&third2.tagUp===true});
+      chk.push({n:'3+Sで三塁走者だけ',ok:b2.goal===1&&first2.goal===1&&third2.goal===4&&third2.cmd==='S'&&third2.intentSource==='manual'});
+
+      setup();
+      const b3=rr(0,0.55,1), first3=rr(1,1.45,1.45);
+      runners=[b3,first3]; held['1']=true; held['x']=true; applyRunnerKeys();
+      chk.push({n:'1+Xで一塁走者だけ帰塁',ok:b3.goal===1&&first3.goal===1&&first3.cmd==='X'&&first3.intentSource==='manual'&&!first3.tagUp});
+      chk.push({n:'X手動意図を自動ハーフウェイが上書きしない',ok:setAutoGoal(first3,1.45)===false&&first3.goal===1});
     }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
     finally{ clear(); }
     const bad=chk.filter(x=>!x.ok);
