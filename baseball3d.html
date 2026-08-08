@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-13';
+const BUILD = 'b0805-14';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -122,6 +122,8 @@ function recTick(dt){
       by:throwPlay.thrower?throwPlay.thrower.n:null, kind:throwPlay.kind}:null,
     run: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r2(r.p)}→${r2(r.goal)}${r.out?'X':''}${r.cmd||''}${r.mustReturn?'R':''}${r.tagUp?'T':''}`),
+    intent: runners.filter(r=>!r.out||r.p<4).map(r=>
+      `${r.origin}:${r.intentSource||'legacy'}#${r.intentSeq||0}:d${runnerObservedDir(r)}`),
     fld: fielders.map(f=>`${f.n}${r2(f.cx)},${r2(f.cy)}${f.primary?'*':''}${f.coverBase!=null?('c'+f.coverBase):''}`)
   });
   if(REC.cur.f.length>400) REC.cur.f.shift();   // 1プレー40秒ぶんで頭打ち
@@ -133,7 +135,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / fld="位置x,y" *=打球担当 c1=一塁カバー',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / fld="位置x,y" *=打球担当 c1=一塁カバー',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -1342,24 +1344,34 @@ function planPlay(src, useCurrent){
    打球が飛んだ瞬間に走り出し、結果が確定したら行き先(goal)を更新する。
    進塁しない走者は元の塁へ戻る。 */
 const RUN_SPEED = 1/90;                  // 1ft/秒あたりの塁進行。走力から出した速度を掛ける
+/* 走者の初期状態を一か所で作る。goal/autoGoal/観測方向の初期値が経路ごとにずれると、
+   守備が存在しない移動を見たり、録画に決定元が残らない。 */
+function makeRunner(p,goal,origin,sp){
+  return {p,goal,autoGoal:goal,extra:0,origin,sp,obsDir:0,intentSource:'init',intentSeq:0};
+}
+/* 守備・判定が参照してよいのは、goalから推測した意図ではなく直前フレームの実移動方向だけ。
+   goalを変えた瞬間に守備が走者の意図を先読みした OI-056 / Sol所見14 の構造を断つ。 */
+function runnerObservedDir(r){
+  return r.obsDir===1 ? 1 : (r.obsDir===-1 ? -1 : 0);
+}
 function beginRunners(bases, mode){
   const bat = ROSTER[battingTeam()][S.order[battingTeam()]];
   /* mode==='noBatter' … 投球中の走者だけを置く（盗塁用。打者走者はまだ存在しない）
      mode==='keep'     … 盗塁で走っている走者をそのまま引き継ぎ、打者走者だけ足す */
   if(mode==='keep' && runners.length){
-    runners.unshift({p:0, goal:1, autoGoal:1, extra:0, origin:0, sp:A.speed(bat.走)});
+    runners.unshift(makeRunner(0,1,0,A.speed(bat.走)));
     return;
   }
   /* 打者走者の一塁までの脚は毎回わずかにぶれる（打った直後の体勢・スタートの切れ）。
      いつも最速タイムで走るわけではないので、能力から出した速さの94〜100%で走る。 */
   runners = (mode==='noBatter') ? []
-          : [{p:0, goal:1, autoGoal:1, extra:0, origin:0, sp:A.speed(bat.走)*rnd(0.94,1.0)}];   // 打者走者
+          : [makeRunner(0,1,0,A.speed(bat.走)*rnd(0.94,1.0))];   // 打者走者
   /* 走者は塁から少しだけ離れて構える（リード）。実際の野球と同じで、これが無いと
      打った瞬間から完全な静止状態で走り出すことになり、単打で誰も進めなくなる。
      守備は goal（行くつもり）ではなく「実際に動いている向き」を見るので、
      止まっているリードを「走り出した」と誤読することはない。 */
   bases.forEach((b,i)=>{ const p=i+1+0.085;
-    runners.push(b?{p, goal:p, autoGoal:p, extra:0, origin:i+1, sp:(b.sp||21)}:null); });
+    runners.push(b?makeRunner(p,p,i+1,(b.sp||21)):null); });
   runners=runners.filter(Boolean);
 }
 function applyRunnerResult(res){
@@ -1376,7 +1388,8 @@ function updateRunners(dt){
   runners.forEach(r=>{
     // 挟まれた走者は左右を見ながらなので全速では走れない
     const top=(r.sp||23)*(r===trapped?0.86:1), acc=top/ACC_T;
-    r.dir = r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);   // 守備が見て分かる「走っている向き」
+    const pBefore=r.p;
+    r.dir = r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);   // 走者を動かす内部方向（守備は読まない）
     if(r.p < r.goal){
       r.v=Math.min(top,(r.v||0)+acc*dt);
       const pPrev=r.p;
@@ -1400,6 +1413,8 @@ function updateRunners(dt){
          毎回その場で止まってから走り直すことになる。急には止まれないので徐々に落とす。 */
       r.v=Math.max(0,(r.v||0) - (top/ACC_T)*2.2*dt);
     }
+    const dp=r.p-pBefore;
+    r.obsDir = dp>1e-8 ? 1 : (dp<-1e-8 ? -1 : 0);
   });
 }
 function runnerPos(r){
@@ -1636,16 +1651,6 @@ function isForced(r){
   for(let b=0;b<r.origin;b++) if(!runners.some(x=>x.origin===b && !x.out)) return false;
   return true;
 }
-function leadForceTarget(){
-  let best=null;
-  runners.forEach(r=>{
-    if(r.out || r.p>=r.goal) return;
-    if(!isForced(r)) return;
-    const nb=Math.min(4, r.origin+1);
-    if(!best || nb>best.nb) best={nb, r};
-  });
-  return best;
-}
 /* 守備の判断。走者が「どこへ行くつもりか」は見えないので使わない。
    見えているのは「今どこにいて、どちらへ走っているか」だけ。そこから、
    間に合う見込みのある一番先の塁を選ぶ。本塁は余裕がある時だけ狙う
@@ -1656,7 +1661,7 @@ function leadForceTarget(){
    一塁到達済みの打者は dir=0 なので通常の live から消え、本塁だけが候補に残った。
    その場合は「今止まっている後続走者」も見て、一つ先の塁へ返して余計な進塁を防ぐ。 */
 function containmentBaseForTrailingRunner(){
-  const trail=runners.filter(r=>!r.out && r.goal<3.99 && r.p<2.95)
+  const trail=runners.filter(r=>!r.out && r.p<2.95)
     .sort((a,b)=>b.p-a.p)[0];
   if(!trail) return null;
   const occupied=clamp(Math.round(trail.p),0,2);
@@ -1669,10 +1674,10 @@ function chooseThrowTarget(f){
      これが無いと、満塁で打った直後の一瞬に「誰も走っていない」と見えて、
      本塁封殺を捨てて一塁や二塁へ投げてしまう。 */
   const live=runners.filter(r=>!r.out && (
-    r.dir>0 || (r.origin===0 && r.p<1) || (r.origin>0 && isForced(r) && r.p<r.origin+1)));
+    runnerObservedDir(r)>0 || (r.origin===0 && r.p<1) || (r.origin>0 && isForced(r) && r.p<r.origin+1)));
   /* 塁間を戻っている走者も刺せる。戻り先の塁へ投げれば間に合う場面を、
      「前へ走っていないから対象外」として見逃していた。 */
-  const back=runners.filter(r=>!r.out && r.dir<0 && Math.abs(r.p-Math.round(r.p))>0.06);
+  const back=runners.filter(r=>!r.out && runnerObservedDir(r)<0 && Math.abs(r.p-Math.round(r.p))>0.06);
   let sure=null, lead=null, fallback=null;
   for(const r of back){
     const b=Math.floor(r.p+1e-9);
@@ -1701,7 +1706,7 @@ function chooseThrowTarget(f){
              帰塁ETAだけで見ると、全力疾走中でも「まだ戻れる」と読んでしまい、
              本塁勝負を捨てて1点を献上した（録画で確認）
          (b) もう塁へ戻る時間がない */
-      const sprinting = r.dir>0 && (r.v||0) > 0.6*(r.sp||24);
+      const sprinting = runnerObservedDir(r)>0 && (r.v||0) > 0.6*(r.sp||24);
       const committed = sprinting || (homeB>=1 &&
         runnerBackETA({...r, goal:homeB}) > throwETAof(f,homeB) - 0.15);
       if(!committed) continue;                    // 塁の近くで様子見の走者は狙わない
@@ -2470,14 +2475,14 @@ function judgeAtBase(b){
   }
   if(T.kind==='steal'){
     // 盗塁はタッチプレー。送球が着いた時に走者が塁に達していなければアウト
-    const cand=runners.filter(r=>!r.out && r.p<b && r.p>b-1.001 && r.dir>0).sort((x,y)=>y.p-x.p)[0];
+    const cand=runners.filter(r=>!r.out && r.p<b && r.p>b-1.001 && runnerObservedDir(r)>0).sort((x,y)=>y.p-x.p)[0];
     if(cand && runnerETA(cand,b)>0.02){ markOut(cand,'tag'); T.stealText='盗塁失敗！'; }
     else {
       /* その塁を回ってさらに次を狙っている走者がいる間は、盗塁はまだ終わっていない。
          「塁の手前にいる走者」だけを見て成否を決めていたため、
          走者が二塁を回って三塁へ向かっていると該当者なし＝盗塁成功として
          プレーを打ち切っており、走者は誰にも追われずに三塁へ進めていた（録画で確認）。 */
-      const goingOn = runners.find(r=>!r.out && r.p>b-0.02 && r.p<b+0.999 && r.goal>b+0.02);
+      const goingOn = runners.find(r=>!r.out && r.p>b-0.02 && r.p<b+0.999 && runnerObservedDir(r)>0);
       if(goingOn){
         const holder = T.receiver || T.thrower;
         T.thrower=holder; T.receiver=null; T.relayed=false;
@@ -2508,7 +2513,7 @@ function judgeAtBase(b){
       markOut(back,'force');
       T.flyText='離塁アウト！';
     }else{
-      const tagger = runners.filter(r=>!r.out && !r.mustReturn && r.p<b && r.p>b-1.001 && r.dir>0)
+      const tagger = runners.filter(r=>!r.out && !r.mustReturn && r.p<b && r.p>b-1.001 && runnerObservedDir(r)>0)
                             .sort((x,y)=>y.p-x.p)[0];
       if(tagger && runnerETA(tagger,b)>0.02) return beginRundown(tagger, b);
     }
@@ -2521,7 +2526,7 @@ function judgeAtBase(b){
      以前は走者の内部の行き先(goal)で選んでいたため、押し出されているのに
      帰塁を指示された走者が封殺を免れていた。見えている事実だけで選ぶ。 */
   const cand = runners.filter(r=>!r.out && r.p<b && r.p>b-1.001 &&
-                 (r.dir>0 || (r.origin===0 && b===1) || (r.origin>0 && isForced(r) && b===r.origin+1)))
+                 (runnerObservedDir(r)>0 || (r.origin===0 && b===1) || (r.origin>0 && isForced(r) && b===r.origin+1)))
                .sort((x,y)=>y.p-x.p)[0];
   let outMade=false;
   /* 塁を踏むだけでアウトにできるのは封殺だけ。強制されていない走者は
@@ -2552,7 +2557,8 @@ function judgeAtBase(b){
      ここで即確定していたため、一塁セーフ（エラー）の瞬間に、二塁走者が三塁へ
      走っている途中で結果が固定されていた（録画で確認）。ボールを持っている野手が
      次の狙いへ投げ直して続行する。回数は S.throwCount の上限(6)が歯止め。 */
-  const chase = runners.find(r=>!r.out && r.p < r.goal-0.15 && r.p < 3.98);
+  const chase = runners.find(r=>!r.out && runnerObservedDir(r)>0 && r.p < 3.98 &&
+    Math.abs(r.p-Math.round(r.p))>0.02);
   if(chase && baseOuts()+countOuts()<3 && (S.throwCount||0)<6){
     const holder = T.receiver || T.thrower;
     const nxt = chooseThrowTarget(holder);
@@ -4154,7 +4160,7 @@ function updateStealCommands(){
     if(S.earlyHold && (held['s']||held['z']) && runners.some(r=>!r.out)){
       S.jumpEarly=true;
       runners.forEach(r=>{ if(r.out||r.origin>=4) return;
-        r.goal=Math.min(4, r.origin+1); r.jumped=true;
+        setRunnerIntent(r,Math.min(4,r.origin+1),{source:'steal',force:true,updateAuto:true}); r.jumped=true;
         r.p=Math.max(r.p, r.origin+0.16); r.v=Math.max(r.v||0,(r.sp||23)*0.5); });
     }
   }
@@ -4218,6 +4224,7 @@ function applyRunnerKeys(){
      指定中は S/X もその走者にだけ効く。 */
   const pickBase = ['1','2','3'].findIndex(k=>held[k])+1;
   const picked = pickBase ? live.find(r=>Math.floor(r.p+1e-9)===pickBase || r.origin===pickBase) : null;
+  const selected = r => runnerSelectedForCommand(r,leadOnly,lead,picked);
   /* 高く上がって捕られそうな打球が飛んでいる間、Sは「タッチアップの構え」を意味する。
      ここで毎フレーム進塁を命じ続けていたため、塁へ戻す処理が打ち消され、
      Sを押しっぱなしにした走者は離塁したまま捕球を迎えてタッチアップできなかった。 */
@@ -4234,7 +4241,9 @@ function applyRunnerKeys(){
        全員を塁上で待たせていたため、左線に落ちる当たりでもSを押した走者が
        打球が落ちるまで動かず、1.5秒ぶん出遅れていた（録画で確認）。 */
     live.forEach(r=>{
-      if(r.origin>=4) return;
+      if(r.origin>=4 || !selected(r)) return;
+      /* 選択門番は打者走者の特別処理より先に通す。以前は打者走者だけ門番の前で
+         goalを書き換え、Z・1〜3キーで別走者を選んでも巻き込んでいた（OI-088/152/165）。 */
       /* 打者走者にタッチアップは無い（アウトになるのは自分の捕球）。フライの間も
          Sで普通に先の塁を狙える。ハーフウェイ処理が打者を無視して早期returnしていたため、
          フライ中はSを押しても一塁から先へ進めなかった（オーナー指摘）。 */
@@ -4244,11 +4253,10 @@ function applyRunnerKeys(){
         /* 上限は塁単位で数える。前走者がハーフウェイ(goal=2.45等)だと
            goal-1がそのまま1.45になり、打者が塁間の変な位置を目標にしてしまう。 */
         const max=(ahead && ahead.goal<4) ? Math.ceil(ahead.goal-1e-9)-1 : 4;
-        r.goal=Math.max(here, Math.min(here+1, max, 4)); r.cmd='S';
+        setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
         return;
       }
-      if(leadOnly && r!==lead) return;            // Zは先頭の走者だけ
-      if(picked && r!==picked) return;            // 塁を指定した時はその走者だけ
+      // 選択門番は上で全走者共通に適用済み
       r.tagUp=true;
       if(r.origin<3) setAutoGoal(r, r.origin+0.45, true);   // ハーフウェイ
     });
@@ -4269,15 +4277,13 @@ function applyRunnerKeys(){
         if(Math.abs(r.p-r.origin)>0.02) continue;
         r.mustReturn=false;
       }
-      if(leadOnly && r!==lead) continue;   // Zは先頭の走者だけ
-      if(picked && r!==picked) continue;   // 1〜3キーで塁を指定した時はその走者だけ
+      if(!runnerSelectedForCommand(r,leadOnly,lead,picked)) continue;
       const here=Math.floor(r.p+1e-9);
       /* 前の走者が本塁へ向かっている（または生還済み）なら塁は空くので塞がれない。
          本塁は何人でも入れる。ここを一律に「前の走者の1つ手前まで」にしていたため、
          1人が生還した瞬間に後ろの走者が三塁で止まっていた。 */
       const max = (ahead && ahead.goal<4) ? ahead.goal-1 : 4;
-      r.goal = Math.max(here, Math.min(here+1, max, 4));
-      r.cmd='S';
+      setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
     }
   }else{
     /* 帰塁は後ろの走者から決める。後ろの走者が入る塁へは戻れないので、
@@ -4285,11 +4291,10 @@ function applyRunnerKeys(){
        打者走者は本塁へは戻れないが、一塁を回っていれば一塁へ戻れる。 */
     for(let i=0;i<live.length;i++){
       const r=live[i], behind=live[i-1];
-      if(picked && r!==picked) continue;   // 塁を指定した時はその走者だけ戻す
+      if(!runnerSelectedForCommand(r,false,lead,picked)) continue;
       const here=Math.floor(r.p+1e-9);
       const min = behind ? behind.goal+1 : (r.origin===0 ? 1 : 0);
-      r.goal = Math.min(4, Math.max(here, min));
-      r.cmd='X';
+      setManualGoal(r,Math.min(4,Math.max(here,min)),'X');
     }
   }
 }
@@ -4474,14 +4479,30 @@ function setManualThrow(t){
    確定したときに足し合わせる（そうしないと自動判定に上書きされて操作が効かない）。 */
 /* 自動の到達塁(autoGoal)は目安。プレイヤーがS/Xを押したらその指示が優先される。
    S = 今いる（or 向かっている）塁の次へ / X = 塁間にいるなら手前の塁へ戻る */
-/* 自動の到達塁。ただし自分でS/Xを押した走者は、その指示のとおりに止まる
-   （自動の追加進塁を上乗せしない）。1回押したら1つだけ、が分かりやすいため。
-   指示は塁に着いた時点で消えるので、その後はまた自動に従う。 */
+/* 走者の行き先を変更する最初の単一書き手API。
+   Phase 1では自動・手動操作をここへ集約し、残る規則/結果経路は後続PRで順次移す。
+   source/intentSeqを録画へ残すことで、後段の黙った上書きを一次証拠から特定できる。 */
+function setRunnerIntent(r,g,opt){
+  const o=opt||{}, goal=clamp(g,0,4), source=o.source||'auto';
+  if(o.updateAuto!==false) r.autoGoal=goal;
+  // 通常の自動判断は明示的なS/Xを上書きしない。規則・結果のforceだけが優先できる。
+  if(source==='auto' && !o.force && r.cmd) return false;
+  r.goal=goal;
+  if(Object.prototype.hasOwnProperty.call(o,'cmd')) r.cmd=o.cmd;
+  r.intentSource=source;
+  r.intentSeq=(r.intentSeq||0)+1;
+  return true;
+}
 function setAutoGoal(r,g,force){
-  r.autoGoal=g;
-  // force=無条件に与えられる進塁（本塁打・四球・フライ後の帰塁）は手動指示より優先する
-  if(!force && r.cmd) return;
-  r.goal=g;
+  return setRunnerIntent(r,g,{source:'auto',force:!!force,updateAuto:true});
+}
+function setManualGoal(r,g,cmd){
+  return setRunnerIntent(r,g,{source:'manual',force:true,updateAuto:false,cmd});
+}
+function runnerSelectedForCommand(r,leadOnly,lead,picked){
+  if(leadOnly && r!==lead) return false;
+  if(picked && r!==picked) return false;
+  return true;
 }
 /* 進塁。1回押したら1つだけ進む「一発の指示」で、塁に着いたら指示は消える
    （押しっぱなしのように次々進んでしまわないようにするため）。
