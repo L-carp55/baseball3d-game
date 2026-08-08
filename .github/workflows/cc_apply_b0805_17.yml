@@ -1,0 +1,123 @@
+name: Apply b0805-17 ReachModel
+
+"on":
+  push:
+    branches: ["agent/b0805-17-reach-model"]
+    paths: [".github/workflows/cc_apply_b0805_17.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-17-reach-model
+
+      - name: Apply patch
+        run: |
+          python .cc_patch_b0805_17.py
+          git diff --check
+
+      - name: Static and focused checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          start=src.index('<script>')+len('<script>')
+          end=src.index('</script>',start)
+          Path('/tmp/baseball3d-main.js').write_text(src[start:end],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          node --check _test_harness_20260804.js
+          node --check _test_reach_model_20260808.js
+          node --check _architecture_guard_20260808.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+
+      - name: Build browser baseline and turn mutation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          harness=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
+          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
+          assert harness.count(marker)==1
+          harness=harness.replace(marker,exposed,1)
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          def build(source,name):
+              prelude=(
+                  '<script>(()=>{let s=0x71D22228>>>0;Math.random=()=>{'
+                  's^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};})();'
+                  'window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";'
+              )
+              source=source.replace('<script>\n"use strict";',prelude,1)
+              source=source.replace('</body>',f'<script>\n{harness}\n</script>\n</body>',1)
+              Path('/tmp/'+name+'.html').write_text(source,encoding='utf-8')
+          build(base,'baseline')
+          assert base.count('const REACH_TURN_MAX=0.30;')==1
+          build(base.replace('const REACH_TURN_MAX=0.30;','const REACH_TURN_MAX=0;',1),'mut33')
+
+          reach_old="""    const t=reachTimeToPoint(f,p[0],p[1],{\n      useCurrent:true,reach:2,zeroWithinReach:true,speedScale:0.88,\n      reactionBase:F_REACT,reactScale:0.4,turn:true});\n"""
+          assert base.count(reach_old)==1
+          Path('/tmp/guard-reach-mutated.html').write_text(
+            base.replace(reach_old,"    const t=runTime(f.sp*0.88,d);\n",1),encoding='utf-8')
+          PY
+
+      - name: Assert ReachModel architecture mutation is rejected
+        run: |
+          if node _architecture_guard_20260808.js /tmp/guard-reach-mutated.html; then
+            echo 'ReachModel architecture mutation escaped'
+            exit 1
+          fi
+
+      - name: Run browser harness
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          test -n "$CHROME"
+          for name in baseline mut33; do
+            timeout 240 "$CHROME" \
+              --headless=new --no-sandbox --disable-dev-shm-usage \
+              --use-gl=swiftshader --enable-unsafe-swiftshader \
+              --allow-file-access-from-files \
+              --dump-dom "file:///tmp/$name.html" \
+              > "/tmp/$name.dom" 2> "/tmp/$name.err" || {
+                cat "/tmp/$name.err"
+                exit 1
+              }
+          done
+
+      - name: Assert browser results
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+          def load(name):
+              s=Path('/tmp/'+name+'.dom').read_text(encoding='utf-8',errors='replace')
+              m=re.search(r'data-harness="([^"]+)"',s)
+              if not m: raise SystemExit(name+': data-harness missing')
+              return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          base=load('baseline')
+          bad={k:v for k,v in base.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
+          print(json.dumps({'baseline_count':len(base),'baseline_failed':bad},ensure_ascii=False,indent=2))
+          if len(base)!=36 or bad: raise SystemExit('baseline failed')
+          mut=load('mut33')
+          print(mut['test33_ReachModel契約'])
+          print(mut['test34_動的到達方向'])
+          if mut['test33_ReachModel契約'].get('verdict')!='FAIL': raise SystemExit('ReachModel contract mutation escaped')
+          if mut['test34_動的到達方向'].get('verdict')!='FAIL': raise SystemExit('dynamic direction mutation escaped')
+          PY
+
+      - name: Commit implementation
+        run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseball3d.html _test_harness_20260804.js _architecture_guard_20260808.js ARCHITECTURE_REMEDIATION_20260808.md
+          git diff --cached --check
+          git commit -m "refactor: unify fielder reach-time calculations"
+          git push origin HEAD:agent/b0805-17-reach-model
