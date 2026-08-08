@@ -695,6 +695,7 @@
       const b1=rr(0,0.20,1), first=rr(1,1.08,1), third=rr(3,3.08,3);
       runners=[b1,first,third]; held['1']=true; held['s']=true; applyRunnerKeys();
       chk.push({n:'1+Sで一塁走者だけ',ok:b1.goal===1&&first.goal===2&&first.cmd==='S'&&first.intentSource==='manual'&&third.goal===3});
+      chk.push({n:'S手動意図を自動帰塁が上書きしない',ok:setAutoGoal(first,1)===false&&first.goal===2});
 
       setup();
       const b2=rr(0,0.20,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);
@@ -705,6 +706,7 @@
       const b3=rr(0,0.55,1), first3=rr(1,1.45,1.45);
       runners=[b3,first3]; held['1']=true; held['x']=true; applyRunnerKeys();
       chk.push({n:'1+Xで一塁走者だけ帰塁',ok:b3.goal===1&&first3.goal===1&&first3.cmd==='X'&&first3.intentSource==='manual'&&!first3.tagUp});
+      chk.push({n:'X手動意図を自動ハーフウェイが上書きしない',ok:setAutoGoal(first3,1.45)===false&&first3.goal===1});
     }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
     finally{ clear(); }
     const bad=chk.filter(x=>!x.ok);
@@ -1023,34 +1025,6 @@
     }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
     const bad=chk.filter(x=>!x.ok);
     out.test43_挟殺終了goal清算={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
-  })();
-
-  // ===== test44: 高フライ中もS=進塁 / X=帰塁をそのまま優先 =====
-  (function(){
-    const chk=[];
-    const clear=()=>['s','z','x','1','2','3'].forEach(k=>held[k]=false);
-    try{
-      newGame(); S.outs=1; S.preOuts=0; S.phase='flight';
-      const br=makeRunner(0.15,1,0,25), r1=makeRunner(1.10,1,1,25);
-      runners=[br,r1];
-      ball={x:-70,y:80,z:45,vx:-40,vy:50,vz:8,t:0.7,landed:false,canCatchAir:true,maxZ:30};
-      clear(); held.s=true; applyRunnerKeys(); clear();
-      chk.push({n:'高フライSで一塁走者は即二塁へ',ok:r1.goal===2&&r1.cmd==='S'&&r1.intentSource==='manual'&&!r1.tagUp});
-      const keptS=!setAutoGoal(r1,1)&&r1.goal===2;
-      chk.push({n:'S手動意図を自動帰塁が上書きしない',ok:keptS});
-
-      newGame(); S.outs=1; S.preOuts=0; S.phase='flight';
-      const br2=makeRunner(0.55,1,0,25), r2=makeRunner(1.45,1.45,1,25);
-      runners=[br2,r2];
-      ball={x:-70,y:80,z:45,vx:-40,vy:50,vz:8,t:0.7,landed:false,canCatchAir:true,maxZ:30};
-      clear(); held.x=true; applyRunnerKeys(); clear();
-      chk.push({n:'高フライXで一塁走者は一塁へ戻る',ok:r2.goal===1&&r2.cmd==='X'&&r2.intentSource==='manual'&&!r2.tagUp});
-      const keptX=!setAutoGoal(r2,1.45)&&r2.goal===1;
-      chk.push({n:'X手動意図を自動ハーフウェイが上書きしない',ok:keptX});
-    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
-    finally{clear();}
-    const bad=chk.filter(x=>!x.ok);
-    out.test44_高フライ手動走塁優先={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
   console.log(JSON.stringify(out,null,1));

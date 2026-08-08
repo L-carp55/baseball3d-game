@@ -4481,15 +4481,15 @@ function applyRunnerKeys(){
        Xも打者走者を後続の占有者として数える一般帰塁ロジックに流れ、一塁へ戻れなかった。
        高フライ中の明示入力は自動戦術より優先し、タッチアップは捕球後のSで行う。 */
     if(go){
-      for(let i=live.length-1;i>=0;i--){
-        const r=live[i], ahead=live[i+1];
-        if(r.origin>=4 || !selected(r)) continue;
+      live.slice().reverse().forEach((r,ri,rev)=>{
+        const ahead=ri>0 ? rev[ri-1] : null;
+        if(r.origin>=4 || !selected(r)) return;
         const here=Math.floor(r.p+1e-9);
         const floorMax=(r.origin===0?1:0);
         const max=(ahead && ahead.goal<4) ? Math.max(floorMax,Math.ceil(ahead.goal-1e-9)-1) : 4;
         setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
         r.tagUp=false;
-      }
+      });
     }else{
       for(const r of live){
         if(r.origin>=4 || !runnerSelectedForCommand(r,false,lead,picked)) continue;
