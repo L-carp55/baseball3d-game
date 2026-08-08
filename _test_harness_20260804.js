@@ -532,6 +532,68 @@
     out.test18_線際カメラ=res;
   })();
 
+  // ===== test19: 捕球打球の分類（OI-251 / OI-253） =====
+  (function(){
+    const chk=[];
+    try{
+      chk.push({n:'低いノーバウンドはライナー', ok:classifyCaughtBall({landed:false,la:12,maxZ:6.5,z:5})==='ライナー'});
+      chk.push({n:'通常フライ', ok:classifyCaughtBall({landed:false,la:32,maxZ:42,z:5})==='フライ'});
+      chk.push({n:'高角度はポップ', ok:classifyCaughtBall({landed:false,la:50,maxZ:55,z:5})==='ポップフライ'});
+      chk.push({n:'接地球だけゴロ', ok:classifyCaughtBall({landed:true,la:-5,maxZ:6,z:0})==='ゴロ'});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test19_捕球打球分類={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test20: フライ後続プレーの表示（OI-253） =====
+  (function(){
+    let res={};
+    try{
+      const save=ball;
+      ball={flyKind:'フライ'};
+      const a=flyOutLabel({kind:'fly',flyBy:'右'},'投');
+      ball={flyKind:'ライナー'};
+      const b=flyOutLabel({kind:'fly',flyBy:'三'},'投');
+      ball=save;
+      res={フライ:a,ライナー:b,verdict:(a==='右フライ アウト'&&b==='三ライナー アウト')?'PASS':'FAIL'};
+    }catch(e){ res={verdict:'FAIL',e:e.message}; }
+    out.test20_フライ後続表示=res;
+  })();
+
+  // ===== test21: フライ捕球モーション（OI-249 / OI-250） =====
+  (function(){
+    const chk=[];
+    try{
+      chk.push({n:'真上の球は飛び込み0',ok:catchDiveAmount(0.5,9)===0});
+      chk.push({n:'横に遠い球は飛び込み',ok:catchDiveAmount(8,9)>0.5});
+      chk.push({n:'先着した高い落下球は待つ',ok:shouldWaitForChestCatch({v:0,sp:25},{landed:false,vz:-10,z:7},1)===true});
+      chk.push({n:'胸高まで来たら待たない',ok:shouldWaitForChestCatch({v:0,sp:25},{landed:false,vz:-10,z:5.2},1)===false});
+      chk.push({n:'追走中は待たない',ok:shouldWaitForChestCatch({v:24,sp:25},{landed:false,vz:-10,z:7},1)===false});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test21_フライ捕球モーション={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test22: 同一アウト表示の二重発行を防ぐ（OI-252） =====
+  (function(){
+    let res={};
+    try{
+      newGame();
+      const oldSet=window.setMsg; let emits=0;
+      window.setMsg=function(m,sub,c){ emits++; S.msg=m; S.msgSub=sub||''; S.msgColor=c||'#e8eef5'; };
+      try{
+        S.msg='右フライ アウト'; emits=0;
+        const same=presentFinalMessage({text:'右フライ アウト',runs:0,color:'#95a3b4'});
+        const sameOk=(same===false&&emits===0);
+        S.msg='別の表示'; emits=0;
+        const diff=presentFinalMessage({text:'右フライ アウト',runs:0,color:'#95a3b4'});
+        const diffOk=(diff===true&&emits===1);
+        res={同文再発行:emits,verdict:(sameOk&&diffOk)?'PASS':'FAIL'};
+      }finally{ window.setMsg=oldSet; }
+    }catch(e){ res={verdict:'FAIL',e:e.message}; }
+    out.test22_重複アウト表示=res;
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
