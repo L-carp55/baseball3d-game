@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-11';
+const BUILD = 'b0805-12';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -1651,6 +1651,17 @@ function leadForceTarget(){
    間に合う見込みのある一番先の塁を選ぶ。本塁は余裕がある時だけ狙う
    （ぎりぎりで本塁へ投げて間に合わないより、確実に刺せる手前の塁を取る）。
    誰も走っていなければ投手へ返球する。 */
+/* 失点がもう防げない時は、本塁へ遅れて投げるより後続走者の次塁を塞ぐ。
+   OI-247: 三塁走者が本塁まで0.4秒、右翼から本塁2.4秒の場面で、
+   一塁到達済みの打者は dir=0 なので通常の live から消え、本塁だけが候補に残った。
+   その場合は「今止まっている後続走者」も見て、一つ先の塁へ返して余計な進塁を防ぐ。 */
+function containmentBaseForTrailingRunner(){
+  const trail=runners.filter(r=>!r.out && r.goal<3.99 && r.p<2.95)
+    .sort((a,b)=>b.p-a.p)[0];
+  if(!trail) return null;
+  const occupied=clamp(Math.round(trail.p),0,2);
+  return Math.min(3, Math.max(1, occupied+1));
+}
 function chooseThrowTarget(f){
   const throwETA=b=>throwETAof(f,b);
   /* 「今動いている走者」だけでなく「押し出されて必ず進む走者」も対象にする。
@@ -1731,6 +1742,13 @@ function chooseThrowTarget(f){
   const pick = (baseOuts()>=2) ? (sure||lead) : (lead||sure);
   if(pick) return {nb:pick.nb};
   if(fallback){
+    /* 本塁が完全に手遅れなら、その走者への後追い送球はしない。
+       後続走者が塁上で止まっていても、一つ先の塁へ返して追加進塁を防ぐ。
+       これにより OI-247 の「二塁へ返す判断→リリース時に本塁へ上書き」を防ぐ。 */
+    if(fallback.nb===4 && fallback.m < -0.60){
+      const contain=containmentBaseForTrailingRunner();
+      if(contain!=null) return {nb:contain};
+    }
     /* どこにも勝負が無い時の送球先。走者が余裕で先に着く塁（0.6秒超の負け）へ後追いで
        投げても意味がない（単打で打者到達済みの一塁へ207ft投げていた＝録画203729）。
        1つ先の塁へ投げて、次の進塁を牽制する（実際の外野手の「先の塁へ返す」動き）。
@@ -3786,6 +3804,17 @@ function drawFigure(kit, fx, fz, face, runDist, scale, speed01, pose){
    ・打球を捕りに行っている（近い）   → グラブを出す
    ・投球前・プレー中                 → 膝を割って構える
    これが無いと、投げる瞬間も捕る瞬間も棒立ちのまま値だけが変わる。 */
+/* 守備位置ごとの通常の構え。外野手は内野手のように深く膝を割らず、
+   基本は立った姿勢で一歩目を待つ。捕手だけは低く、内野手は浅い前傾にする（OI-246）。 */
+function fielderReadyPose(f){
+  if('左右中'.includes(f.n))
+    return {armL:0.28,armR:0.24,elbowL:0.55,elbowR:0.55,lean:0.10,crouch:0.03,legL:0.08,legR:-0.08,kneeL:0.12,kneeR:0.12};
+  if(f.n==='捕')
+    return {armL:0.42,armR:0.38,elbowL:0.95,elbowR:0.95,lean:0.24,crouch:0.48,legL:0.32,legR:-0.32,kneeL:0.95,kneeR:0.95};
+  if('一二三遊'.includes(f.n))
+    return {armL:0.45,armR:0.40,elbowL:0.80,elbowR:0.80,lean:0.20,crouch:0.16,legL:0.20,legR:-0.20,kneeL:0.38,kneeR:0.38};
+  return {armL:0.30,armR:0.28,elbowL:0.65,elbowR:0.65,lean:0.12,crouch:0.07,legL:0.10,legR:-0.10,kneeL:0.18,kneeR:0.18};
+}
 function fielderPose(f){
   /* 飛び込み・跳び上がりの見た目（オーナー要望 2026-08-04。判定は既存の
      dive01・跳びのreachをそのまま使い、見た目だけを付ける）。
@@ -3824,8 +3853,7 @@ function fielderPose(f){
     }
   }
   if(S.phase==='pitch'||S.phase==='windup'||S.phase==='flight')
-    return {armL:0.55, armR:0.45, elbowL:0.95, elbowR:0.95,
-            lean:0.30, crouch:0.30, legL:0.28, legR:-0.28, kneeL:0.5, kneeR:0.5};   // 膝を割った構え
+    return fielderReadyPose(f);
   return null;
 }
 /* 投手の投球動作。振りかぶり→踏み出し→リリース→フォロースルー。
