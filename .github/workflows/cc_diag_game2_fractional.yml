@@ -1,0 +1,38 @@
+name: Diagnose g2 fractional runner stall
+"on":
+  push:
+    branches: ["agent/validation-recording-corpus"]
+    paths: [".github/workflows/cc_diag_game2_fractional.yml"]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/validation-recording-corpus
+      - name: Build diagnostic HTML
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          base=base.replace('<script>\n"use strict";','<script>window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";',1)
+          diag=Path('validation/diag_game2_fractional_20260808.js').read_text(encoding='utf-8')
+          Path('/tmp/g2.html').write_text(base.replace('</body>',f'<script>{diag}</script></body>',1),encoding='utf-8')
+          PY
+      - name: Run trace
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          timeout 240 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/g2.html > /tmp/g2.dom 2>/tmp/g2.err
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+          s=Path('/tmp/g2.dom').read_text(encoding='utf-8',errors='replace')
+          m=re.search(r'data-game2diag="([^"]+)"',s)
+          if not m: raise SystemExit('diag missing')
+          out=json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          if not out.get('detected'): raise SystemExit('g2 fractional stall not reproduced')
+          PY
