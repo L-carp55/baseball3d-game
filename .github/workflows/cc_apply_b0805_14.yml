@@ -1,0 +1,123 @@
+name: Apply and verify b0805-14
+
+on:
+  push:
+    branches: ["agent/b0805-14-runner-intent-foundation"]
+    paths: [".github/workflows/cc_apply_b0805_14.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-14-runner-intent-foundation
+
+      - name: Apply patch
+        run: |
+          python .cc_patch_b0805_14.py
+          git diff --check
+
+      - name: Static and architectural checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          start=src.index('<script>')+len('<script>')
+          end=src.index('</script>',start)
+          Path('/tmp/baseball3d-main.js').write_text(src[start:end],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          node --check _test_harness_20260804.js
+          node --check _test_runner_intent_20260808.js
+          node --check _architecture_guard_20260808.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+
+      - name: Build full-harness baseline and mutations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          harness=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
+          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
+          assert harness.count(marker)==1
+          harness=harness.replace(marker,exposed,1)
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+
+          def build(source,name):
+              source=source.replace('<script>\n"use strict";','<script>window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";',1)
+              source=source.replace('</body>',f'<script>\n{harness}\n</script>\n</body>',1)
+              Path('/tmp/'+name+'.html').write_text(source,encoding='utf-8')
+
+          build(base,'baseline')
+          old="      if(r.origin>=4 || !selected(r)) return;\n"
+          new="      if(r.origin>=4 || (r.origin!==0 && !selected(r))) return;\n"
+          assert base.count(old)==1
+          build(base.replace(old,new,1),'mut28')
+
+          old2="function runnerObservedDir(r){\n  return r.obsDir===1 ? 1 : (r.obsDir===-1 ? -1 : 0);\n}\n"
+          new2="function runnerObservedDir(r){\n  return r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);\n}\n"
+          assert base.count(old2)==1
+          build(base.replace(old2,new2,1),'mut29')
+          PY
+
+      - name: Run browser harness
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          test -n "$CHROME"
+          for name in baseline mut28 mut29; do
+            timeout 240 "$CHROME" \
+              --headless=new \
+              --no-sandbox \
+              --disable-dev-shm-usage \
+              --use-gl=swiftshader \
+              --enable-unsafe-swiftshader \
+              --allow-file-access-from-files \
+              --dump-dom "file:///tmp/$name.html" \
+              > "/tmp/$name.dom" 2> "/tmp/$name.err" || {
+                cat "/tmp/$name.err"
+                exit 1
+              }
+          done
+
+      - name: Assert baseline and mutation detection
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+
+          def load(name):
+              dom=Path('/tmp/'+name+'.dom').read_text(encoding='utf-8',errors='replace')
+              match=re.search(r'data-harness="([^"]+)"',dom)
+              if not match:
+                  raise SystemExit(name+': data-harness missing')
+              return json.loads(urllib.parse.unquote(html.unescape(match.group(1))))
+
+          baseline=load('baseline')
+          bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
+          print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
+          if len(baseline)!=31 or bad:
+              raise SystemExit('baseline failed')
+
+          m28=load('mut28'); m29=load('mut29')
+          print('mut28',m28['test28_個別走者選択'])
+          print('mut29',m29['test29_守備と走者意図の分離'])
+          if m28['test28_個別走者選択'].get('verdict')!='FAIL':
+              raise SystemExit('selection-scope mutation escaped')
+          if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL':
+              raise SystemExit('intent-leak mutation escaped')
+          PY
+
+      - name: Commit verified implementation
+        run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseball3d.html _test_harness_20260804.js
+          git diff --cached --check
+          git commit -m "refactor: establish RunnerIntent ownership boundary"
+          git push origin HEAD:agent/b0805-14-runner-intent-foundation
