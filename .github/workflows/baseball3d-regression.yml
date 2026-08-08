@@ -9,6 +9,7 @@ name: Baseball3D regression
       - "_test_harness_20260804.js"
       - "_test_runner_intent_20260808.js"
       - "_test_fielding_assignment_20260808.js"
+      - "_test_reach_model_20260808.js"
       - "_architecture_guard_20260808.js"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
       - ".github/workflows/baseball3d-regression.yml"
@@ -18,6 +19,7 @@ name: Baseball3D regression
       - "_test_harness_20260804.js"
       - "_test_runner_intent_20260808.js"
       - "_test_fielding_assignment_20260808.js"
+      - "_test_reach_model_20260808.js"
       - "_architecture_guard_20260808.js"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
       - ".github/workflows/baseball3d-regression.yml"
@@ -45,10 +47,12 @@ jobs:
           node --check _test_harness_20260804.js
           node --check _test_runner_intent_20260808.js
           node --check _test_fielding_assignment_20260808.js
+          node --check _test_reach_model_20260808.js
           node --check _architecture_guard_20260808.js
           node _architecture_guard_20260808.js
           node _test_runner_intent_20260808.js
           node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
 
       - name: Build full-harness baseline and mutations
         run: |
@@ -98,6 +102,10 @@ jobs:
           assert base.count(old5)==1
           build(base.replace(old5,'',1),'mut32')
 
+          old6="const REACH_TURN_MAX=0.30;"
+          assert base.count(old6)==1
+          build(base.replace(old6,"const REACH_TURN_MAX=0;",1),'mut33')
+
           # Structural mutation: reintroduce a second direct goal writer.
           guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
@@ -109,6 +117,12 @@ jobs:
           cover_direct="          cut.coverBase=null; recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;\n"
           assert base.count(cover_anchor)==1
           Path('/tmp/guard-cover-mutated.html').write_text(base.replace(cover_anchor,cover_direct,1),encoding='utf-8')
+
+          # Structural mutation: bypass ReachModel inside coverArrival.
+          reach_old="""    const t=reachTimeToPoint(f,p[0],p[1],{\n      useCurrent:true,reach:2,zeroWithinReach:true,speedScale:0.88,\n      reactionBase:F_REACT,reactScale:0.4,turn:true});\n"""
+          reach_direct="    const t=runTime(f.sp*0.88,d);\n"
+          assert base.count(reach_old)==1
+          Path('/tmp/guard-reach-mutated.html').write_text(base.replace(reach_old,reach_direct,1),encoding='utf-8')
           PY
 
       - name: Assert architecture mutation is rejected
@@ -121,12 +135,16 @@ jobs:
             echo 'cover architecture mutation escaped'
             exit 1
           fi
+          if node _architecture_guard_20260808.js /tmp/guard-reach-mutated.html; then
+            echo 'ReachModel architecture mutation escaped'
+            exit 1
+          fi
 
       - name: Run browser harness
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32; do
+          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33; do
             timeout 240 "$CHROME" \
               --headless=new \
               --no-sandbox \
@@ -157,7 +175,7 @@ jobs:
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=34 or bad:
+          if len(baseline)!=36 or bad:
               raise SystemExit('baseline failed')
 
           m28=load('mut28')
@@ -165,11 +183,13 @@ jobs:
           m30=load('mut30')
           m31=load('mut31')
           m32=load('mut32')
+          m33=load('mut33')
           print('mut28',m28['test28_個別走者選択'])
           print('mut29',m29['test29_守備と走者意図の分離'])
           print('mut30',m30['test30_RunnerIntent契約'])
           print('mut31',m31['test31_FieldingAssignment契約'])
           print('mut32',m32['test32_壁反射担当交代'])
+          print('mut33',m33['test33_ReachModel契約'],m33['test34_動的到達方向'])
           if m28['test28_個別走者選択'].get('verdict')!='FAIL':
               raise SystemExit('selection-scope mutation escaped')
           if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL':
@@ -180,4 +200,6 @@ jobs:
               raise SystemExit('role-stealing mutation escaped')
           if m32['test32_壁反射担当交代'].get('verdict')!='FAIL':
               raise SystemExit('wall-handoff mutation escaped')
+          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL':
+              raise SystemExit('ReachModel turn mutation escaped')
           PY
