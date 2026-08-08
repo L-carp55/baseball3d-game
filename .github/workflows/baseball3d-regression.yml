@@ -30,7 +30,7 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
 
@@ -89,22 +89,19 @@ jobs:
           build(base.replace(old2,new2,1),'mut29')
 
           old3="  if(o.updateAuto!==false) r.autoGoal=goal;\n"
-          new3="  r.autoGoal=goal;\n"
           assert base.count(old3)==1
-          build(base.replace(old3,new3,1),'mut30')
+          build(base.replace(old3,"  r.autoGoal=goal;\n",1),'mut30')
 
           old4="    if(ex.has(f) || f.primary) return;\n    if(f.coverBase!=null && f.coverBase!==base) return;\n"
-          new4="    if(ex.has(f)) return;\n"
           assert base.count(old4)==1
-          build(base.replace(old4,new4,1),'mut31')
+          build(base.replace(old4,"    if(ex.has(f)) return;\n",1),'mut31')
 
           old5="      if(handoff.changed) return false;\n"
           assert base.count(old5)==1
           build(base.replace(old5,'',1),'mut32')
 
-          old6="const REACH_TURN_MAX=0.30;"
-          assert base.count(old6)==1
-          build(base.replace(old6,"const REACH_TURN_MAX=0;",1),'mut33')
+          assert base.count('const REACH_TURN_MAX=0.30;')==1
+          build(base.replace('const REACH_TURN_MAX=0.30;','const REACH_TURN_MAX=0;',1),'mut33')
 
           assert base.count('const RETARGET_GAIN=0.12;')==1
           build(base.replace('const RETARGET_GAIN=0.12;','const RETARGET_GAIN=0;',1),'mut35')
@@ -125,58 +122,58 @@ jobs:
           assert base.count(old10)==1
           build(base.replace(old10,"  if(throwPlay && throwPlay.stage==='transfer') throwPlay.target=(t==='P')?1:t;\n",1),'mut39')
 
-          # Structural mutation: reintroduce a second direct goal writer.
+          live="  const liveBall=!!(stageLive && ball && (ball.z>0.8 || ballSpeed>3));\n"
+          assert base.count(live)==1
+          build(base.replace(live,"  const liveBall=false;\n",1),'mut40')
+
+          third="  const canClose=thirdOut || !(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n"
+          assert base.count(third)==1
+          build(base.replace(third,"  const canClose=!(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n",1),'mut41')
+
+          safe="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled){\n    /* 終了要求がlive-ball等で拒否された時はreturnしない。ここは物理更新より前なので、\n       returnすると同じ球位置・速度のまま毎フレーム再び拒否され、送球が永久に凍結する。 */\n    if(requestPlayConclusion('settled-return')) return;\n  }\n"
+          assert base.count(safe)==1
+          frozen="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled) return requestPlayConclusion('request');\n"
+          build(base.replace(safe,frozen,1),'mut42')
+
+          # Architecture mutations.
           guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           assert base.count(guard_old)==1
-          Path('/tmp/guard-mutated.html').write_text(base.replace(guard_old,guard_new,1),encoding='utf-8')
+          Path('/tmp/guard-goal.html').write_text(base.replace(guard_old,guard_new,1),encoding='utf-8')
 
-          # Structural mutation: bypass the cover assignment API.
           cover_anchor="          recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;\n"
           cover_direct="          cut.coverBase=null; recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;\n"
           assert base.count(cover_anchor)==1
-          Path('/tmp/guard-cover-mutated.html').write_text(base.replace(cover_anchor,cover_direct,1),encoding='utf-8')
+          Path('/tmp/guard-cover.html').write_text(base.replace(cover_anchor,cover_direct,1),encoding='utf-8')
 
-          # Structural mutation: bypass ReachModel inside coverArrival.
           reach_old="""    const t=reachTimeToPoint(f,p[0],p[1],{\n      useCurrent:true,reach:2,zeroWithinReach:true,speedScale:0.88,\n      reactionBase:F_REACT,reactScale:0.4,turn:true});\n"""
-          reach_direct="    const t=runTime(f.sp*0.88,d);\n"
           assert base.count(reach_old)==1
-          Path('/tmp/guard-reach-mutated.html').write_text(base.replace(reach_old,reach_direct,1),encoding='utf-8')
+          Path('/tmp/guard-reach.html').write_text(base.replace(reach_old,"    const t=runTime(f.sp*0.88,d);\n",1),encoding='utf-8')
 
-          # Structural mutation: bypass retarget adoption gate in dynamic re-aim.
           retarget_old="      retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');\n"
           assert base.count(retarget_old)==1
-          Path('/tmp/guard-retarget-mutated.html').write_text(base.replace(retarget_old,"      setTarget(prim,b2.x,b2.y);\n",1),encoding='utf-8')
+          Path('/tmp/guard-retarget.html').write_text(base.replace(retarget_old,"      setTarget(prim,b2.x,b2.y);\n",1),encoding='utf-8')
 
-          # Structural mutation: add a second post-construction throw-target writer.
           throw_anchor="      if(T.kind==='pickoff'){\n"
           assert base.count(throw_anchor)==1
-          Path('/tmp/guard-throw-mutated.html').write_text(base.replace(throw_anchor,"      T.target='P';\n"+throw_anchor,1),encoding='utf-8')
+          Path('/tmp/guard-throw.html').write_text(base.replace(throw_anchor,"      T.target='P';\n"+throw_anchor,1),encoding='utf-8')
+          Path('/tmp/guard-lifecycle.html').write_text(base.replace(throw_anchor,"      concludePlay(false);\n"+throw_anchor,1),encoding='utf-8')
           PY
 
-      - name: Assert architecture mutation is rejected
+      - name: Assert architecture mutations are rejected
         run: |
-          if node _architecture_guard_20260808.js /tmp/guard-mutated.html; then
-            echo 'goal architecture mutation escaped'; exit 1
-          fi
-          if node _architecture_guard_20260808.js /tmp/guard-cover-mutated.html; then
-            echo 'cover architecture mutation escaped'; exit 1
-          fi
-          if node _architecture_guard_20260808.js /tmp/guard-reach-mutated.html; then
-            echo 'ReachModel architecture mutation escaped'; exit 1
-          fi
-          if node _architecture_guard_20260808.js /tmp/guard-retarget-mutated.html; then
-            echo 'retarget architecture mutation escaped'; exit 1
-          fi
-          if node _architecture_guard_20260808.js /tmp/guard-throw-mutated.html; then
-            echo 'ThrowDecision architecture mutation escaped'; exit 1
-          fi
+          for f in goal cover reach retarget throw lifecycle; do
+            if node _architecture_guard_20260808.js "/tmp/guard-$f.html"; then
+              echo "$f architecture mutation escaped"
+              exit 1
+            fi
+          done
 
       - name: Run browser harness
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39; do
+          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39 mut40 mut41 mut42; do
             timeout 240 "$CHROME" \
               --headless=new --no-sandbox --disable-dev-shm-usage \
               --use-gl=swiftshader --enable-unsafe-swiftshader \
@@ -202,20 +199,29 @@ jobs:
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=41 or bad: raise SystemExit('baseline failed')
+          if len(baseline)!=44 or bad: raise SystemExit('baseline failed')
 
-          m28=load('mut28'); m29=load('mut29'); m30=load('mut30'); m31=load('mut31')
-          m32=load('mut32'); m33=load('mut33'); m35=load('mut35'); m36=load('mut36')
-          m37=load('mut37'); m38=load('mut38'); m39=load('mut39')
-          if m28['test28_個別走者選択'].get('verdict')!='FAIL': raise SystemExit('selection-scope mutation escaped')
-          if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL': raise SystemExit('intent-leak mutation escaped')
-          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL': raise SystemExit('RunnerIntent mutation escaped')
-          if m31['test31_FieldingAssignment契約'].get('verdict')!='FAIL': raise SystemExit('role mutation escaped')
-          if m32['test32_壁反射担当交代'].get('verdict')!='FAIL': raise SystemExit('wall mutation escaped')
-          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL': raise SystemExit('ReachModel mutation escaped')
-          if m35['test35_再照準採用'].get('verdict')!='FAIL': raise SystemExit('retarget gain mutation escaped')
-          if m36['test36_通過済み目標'].get('verdict')!='FAIL': raise SystemExit('passed-target mutation escaped')
-          if m37['test37_ThrowDecision固定規則'].get('verdict')!='FAIL' and m37['test39_手動投手返球'].get('verdict')!='FAIL': raise SystemExit('manual priority mutation escaped')
-          if m38['test37_ThrowDecision固定規則'].get('verdict')!='FAIL': raise SystemExit('relay lock mutation escaped')
-          if m39['test39_手動投手返球'].get('verdict')!='FAIL': raise SystemExit('manual P mutation escaped')
+          m={n:load('mut'+str(n)) for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42]}
+          checks=[
+            (m[28]['test28_個別走者選択'],'selection'),
+            (m[29]['test29_守備と走者意図の分離'],'intent'),
+            (m[30]['test30_RunnerIntent契約'],'RunnerIntent'),
+            (m[31]['test31_FieldingAssignment契約'],'FieldingAssignment'),
+            (m[32]['test32_壁反射担当交代'],'wall handoff'),
+            (m[33]['test33_ReachModel契約'],'ReachModel contract'),
+            (m[33]['test34_動的到達方向'],'ReachModel direction'),
+            (m[35]['test35_再照準採用'],'retarget gain'),
+            (m[36]['test36_通過済み目標'],'passed target'),
+            (m[38]['test37_ThrowDecision固定規則'],'relay lock'),
+            (m[39]['test39_手動投手返球'],'manual P'),
+            (m[40]['test40_ライブ送球終了禁止'],'live ball'),
+            (m[41]['test41_PlayLifecycle門番'],'third out'),
+          ]
+          if m[37]['test37_ThrowDecision固定規則'].get('verdict')!='FAIL' and m[37]['test39_手動投手返球'].get('verdict')!='FAIL':
+              raise SystemExit('manual priority mutation escaped')
+          for obj,label in checks:
+              if obj.get('verdict')!='FAIL': raise SystemExit(label+' mutation escaped')
+          if m[42]['test42_Lifecycle拒否後物理継続'].get('verdict')!='FAIL' and m[42]['sweep128'].get('verdict')!='FAIL':
+              raise SystemExit('frozen-live-throw mutation escaped')
+          print('all architecture and behavioral mutations detected')
           PY
