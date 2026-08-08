@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-20';
+const BUILD = 'b0805-21';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -2566,9 +2566,24 @@ function timeoutRundown(){
   }
   return endRundown('戻ってセーフ','#3fd66a');
 }
+/* 挟殺中だけ使うloLim/hiLim（1.2,1.8等）は「逃げ幅」の仮目標であって塁ではない。
+   挟殺が送球ミス等で終了する時、その仮goalを残して通常プレーへ戻すと、走者は塁間で
+   p===goalのまま停止し、PlayLifecycleは正しく「未決着」と判定し続ける。
+   終了時には、仮goalがどちら側の逃げ幅だったかから合法な塁(lo/hi)へ意図を清算する。 */
+function settleRundownExitIntent(T){
+  const R=T&&T.rd, r=R&&R.r;
+  if(!R || !r || r.out) return null;
+  if(Math.abs(r.goal-Math.round(r.goal))<0.01) return {runner:r,base:Math.round(r.goal),changed:false};
+  const loGap=Math.abs(r.goal-R.loLim), hiGap=Math.abs(r.goal-R.hiLim);
+  const base=clamp(loGap<=hiGap?R.lo:R.hi,0,4);
+  setRunnerIntent(r,base,{source:'rundown-exit',force:true,updateAuto:true,cmd:null});
+  r.extra=0;
+  return {runner:r,base,changed:true};
+}
 function endRundown(text,color){
   const T=throwPlay;
   T.rdText=text; T.rdColor=color;
+  const rundownExit=settleRundownExitIntent(T);
   /* 挟殺が決着しても、本塁へ向かっている別の走者がいる限りプレーは終わらない。
      ここで即確定していたため、三本間の走者が本塁の手前(p=3.5)にいるのに
      「1点」でプレーが打ち切られていた（録画で確認。タッチ経路には同じ対策済みだったが
@@ -2584,7 +2599,9 @@ function endRundown(text,color){
     (Math.abs(r.p-Math.round(r.p))>=0.02 || runnerObservedDir(r)!==0));
   if(unsettled && baseOuts()+countOuts()<3){
     const dir=runnerObservedDir(unsettled);
-    const tgtBase = homing ? 4 : clamp(dir<0?Math.floor(unsettled.p):Math.ceil(unsettled.p),1,4);
+    const tgtBase = homing ? 4
+      : (rundownExit && rundownExit.runner===unsettled ? rundownExit.base
+      : clamp(dir<0?Math.floor(unsettled.p):Math.ceil(unsettled.p),1,4));
     /* 挟殺の切り返し送球が空中にある最中は、保持者にボールは無い。
        ここでtransferへ入れると空中の球が保持者の手へ瞬間帰還する
        （録画211315: 捕手が二塁へ投げたのにまだ持っていて三塁へ投げた、の正体）。
