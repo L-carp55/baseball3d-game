@@ -165,12 +165,24 @@ Phase 1完了後のラチェット:
 - `updateStealCommands`の直接`goal`書き込み: 1 → 0
 - 守備判断関数の`goal/cmd/legacy dir`参照: 0
 
-### Phase 2: RunnerIntent完全移行
+### Phase 2: RunnerIntent書き手の完全移行 — BUILD b0805-15
+
+本PRで実施する。
 
 - 捕球、挟殺、牽制、結果確定、ファウルの残る直接代入をAPIへ移す。
-- `goal`を外部から直接書けない構造へ近づける。
-- 走者ごとの意図状態をenum化する。
-- 50録画から走者指示コーパスを作る。
+- `goal`と`autoGoal`の直接書き手を`setRunnerIntent`内の各1か所へ限定する。
+- 自動・手動・規則・結果の優先順位と、決定元/更新番号の記録契約を固定する。
+- architecture guardに意図的な第2書き手を注入し、CIが拒否することを確認する。
+
+Phase 2完了後のラチェット:
+
+- 直接`goal`書き込み: 15 → **1**
+- 直接`autoGoal`書き込み: 4 → **1**
+- 唯一の書き手: `setRunnerIntent`
+
+残る課題:
+
+- `goal`を数値だけでなく意図enumへ分離する作業は、50録画のコーパス化と合わせて後続RunnerIntent高度化で行う。
 
 ### Phase 3: FieldingAssignment
 

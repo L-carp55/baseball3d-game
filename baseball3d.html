@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-14';
+const BUILD = 'b0805-15';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -2398,7 +2398,7 @@ function timeoutRundown(){
   const r=throwPlay && throwPlay.rd ? throwPlay.rd.r : null;
   if(r && !r.out){
     const back=Math.max(r.origin, Math.floor(r.p+1e-9));
-    r.goal=back; r.autoGoal=back; r.cmd=null;
+    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});
   }
   return endRundown('戻ってセーフ','#3fd66a');
 }
@@ -2585,7 +2585,8 @@ function markOut(r, kind){
      きわどくアウトになった時に1点が入っていた。 */
   const beforeFirst = (r.origin===0 && r.p < 1-1e-9);
   if(beforeFirst) kind='force';
-  r.out=true; r.outKind=kind; r.goal=r.p;
+  r.out=true; r.outKind=kind;
+  setRunnerIntent(r,r.p,{source:'out',force:true,updateAuto:false});
   (S.outOrder=S.outOrder||[]).push(kind);       // 成立順を残す（第三アウトの種類で得点可否が変わる）
   S.outs++; S.preOuts=(S.preOuts||0)+1;
   /* アウトの表示は成立した瞬間に出す（プレーの打ち切りとは別）。
@@ -2647,7 +2648,8 @@ function concludePlay(force){
   /* フライを捕られた時、離塁していた走者は元の塁を踏み直さないと進めない。
      踏み直していない走者が本塁まで走り抜けても得点にはならない。 */
   if(throwPlay.kind==='fly') runners.forEach(r=>{
-    if(!r.out && r.mustReturn) r.goal=Math.min(r.goal, r.origin);
+    if(!r.out && r.mustReturn)
+      setRunnerIntent(r,Math.min(r.goal,r.origin),{source:'retouch',force:true,updateAuto:false});
   });
   /* 第三アウトで攻撃が終わった場合、アウトより先に本塁を踏んでいた走者だけが得点になる。 */
   const timePlay = S.thirdOutScored;
@@ -2661,7 +2663,11 @@ function concludePlay(force){
        いた走者が、本塁未到達のまま1点として記録されていた（オーナー指摘4回）。
        本塁に届いていない走者は、最後に踏んだ塁へ置いて得点にしない。 */
     if(g>=4){
-      if(r.p>=3.97){ r.goal=4; if(!timePlay || timePlay.includes(r)) runs++; return; }
+      if(r.p>=3.97){
+        setRunnerIntent(r,4,{source:'result',force:true,updateAuto:false});
+        if(!timePlay || timePlay.includes(r)) runs++;
+        return;
+      }
       g=Math.max(0, Math.floor(r.p+1e-9));
     }
     while(g>=1 && nb[g-1]) g--;
@@ -2670,13 +2676,15 @@ function concludePlay(force){
       /* 行き先だけを決め、位置は走って合わせる。ここで p を直接書き換えると
          走者が塁の間から瞬間移動して見える（プレーが途中で切れたように見える）。
          表示時間は finishPlay が「全員が走り終わるまで」で取る。 */
-      r.goal=g;
+      setRunnerIntent(r,g,{source:'result',force:true,updateAuto:false});
     }else if(baseOuts()+countOuts()>=3){
       /* すでに3アウト＝記録上この走者は関係ないが、位置は塁の上で終わらせる。
          r.goal=r.p にしていたため、走者が塁間に立ったままプレーが終わっていた。 */
-      r.goal=Math.max(0, Math.floor(r.p+1e-9));
+      setRunnerIntent(r,Math.max(0,Math.floor(r.p+1e-9)),
+        {source:'result',force:true,updateAuto:false});
     }else{
-      r.out=true; r.outKind='tag'; r.goal=r.p;      // 戻る塁が無い＝アウト
+      r.out=true; r.outKind='tag';                  // 戻る塁が無い＝アウト
+      setRunnerIntent(r,r.p,{source:'out',force:true,updateAuto:false});
       (S.outOrder=S.outOrder||[]).push('tag');
     }
   });
@@ -3117,7 +3125,7 @@ function stepFlight(dt){
       /* 走らせた走者の行き先も元の塁へ戻す。戻さないと記録は元の塁なのに
          画面では次の塁へ走り、最後にそこへ瞬間移動してから消える。 */
       runners.forEach(r=>{ if(r.out||r.origin===0) return;
-        r.goal=r.origin; r.autoGoal=r.origin; r.cmd=null;
+        setRunnerIntent(r,r.origin,{source:'catch-third',force:true,updateAuto:true,cmd:null});
         const g=Math.round(r.origin); if(g>=1&&g<=3) nb[g-1]={id:Math.random(),sp:r.sp}; });
       finishPlay({out:1, runs:0, bases:nb, hit:false, moves:null, throwTo:null,
         text:`${prim.n}${ball.flyKind||'フライ'} アウト`, color:'#95a3b4'});
@@ -3200,7 +3208,8 @@ function resolveCatch(){
   runners.forEach(r=>{
     if(r.out || r.origin===0) return;
     if(r.p > r.origin+0.12){                 // 離塁していた → 戻る
-      r.mustReturn=true; r.cmd=null; r.goal=r.origin;
+      r.mustReturn=true;
+      setRunnerIntent(r,r.origin,{source:'retouch',force:true,updateAuto:false,cmd:null});
       if(!lead || r.origin<lead.origin) lead=r;
     }else{                                   // 塁にいた → タッチアップで次を狙える
       r.p=r.origin;
@@ -3209,7 +3218,8 @@ function resolveCatch(){
          「自動で判断」は指示が無い時のもので、戻ると指示した走者を走らせてはいけない。 */
       const wants = (r.cmd==='X') ? false
                   : ((r.cmd==='S') || r.tagUp || (deep && r.origin===3 && baseOuts()<2));
-      r.goal = wants ? Math.min(4, r.origin+1) : r.origin;
+      setRunnerIntent(r,wants?Math.min(4,r.origin+1):r.origin,
+        {source:'tag-up',force:true,updateAuto:false});
       if(wants && !lead) lead=r;
     }
   });
@@ -3280,7 +3290,9 @@ function foulBall(){
   if(S.strikes<2) S.strikes++;
   /* 走者を元の塁へ戻す。戻さないと、記録は元の塁のままなのに画面では
      塁間に立ったままになり、次の投球まで表示と記録が食い違う。 */
-  runners.forEach(r=>{ r.p=r.origin; r.goal=r.origin; r.autoGoal=r.origin; r.cmd=null; r.v=0; r.mustReturn=false; r.tagUp=false; });
+  runners.forEach(r=>{ r.p=r.origin;
+    setRunnerIntent(r,r.origin,{source:'foul-reset',force:true,updateAuto:true,cmd:null});
+    r.v=0; r.mustReturn=false; r.tagUp=false; });
   runners=runners.filter(r=>r.origin>0);
   ball=null; resetFielders(); S.fieldView=false;
   setMsg('ファウル','','#95a3b4'); S.lastPlay='ファウル';
@@ -3330,7 +3342,9 @@ function finishPlay(res){
      行き先が塁の途中（挟殺の追い込みなど）なら、手前の塁に着かせて終える。 */
   runners.forEach(r=>{
     if(r.out) return;
-    if(Math.abs(r.goal-Math.round(r.goal))>0.02) r.goal=Math.max(0,Math.floor(r.goal+1e-9));
+    if(Math.abs(r.goal-Math.round(r.goal))>0.02)
+      setRunnerIntent(r,Math.max(0,Math.floor(r.goal+1e-9)),
+        {source:'finish-normalize',force:true,updateAuto:false});
   });
   S.hits[battingTeam()] += res.hit?1:0;
   addRuns(res.runs);
@@ -3450,7 +3464,8 @@ function beginPickoff(){
   const jump = runners.filter(r=>!r.out && r.jumped && r.origin<4)
                       .sort((a,b)=>(b.p-b.origin)-(a.p-a.origin))[0];
   if(!jump){ S.phase='windup'; S.timer=0.3; return; }
-  runners.forEach(r=>{ if(r.jumped){ r.goal=r.origin; r.cmd=null; } });   // 戻るしかない
+  runners.forEach(r=>{ if(r.jumped)
+    setRunnerIntent(r,r.origin,{source:'pickoff-return',force:true,updateAuto:false,cmd:null}); });   // 戻るしかない
   fielders.forEach(f=>{ f.coverBase=null; });
   const map={1:'一',2:'遊',3:'三',4:'捕'};
   [1,2,3,4].forEach(b=>{ const f=fielders.find(x=>x.n===map[b]);
@@ -3491,7 +3506,10 @@ function concludeSteal(){
     let g=Math.round(r.goal);
     if(g>=4){ runs++; return; }
     while(g>=1 && nb[g-1]) g--;
-    if(g>=1){ nb[g-1]={id:Math.random(), sp:r.sp}; r.goal=g; }   // 位置は走って合わせる
+    if(g>=1){
+      nb[g-1]={id:Math.random(),sp:r.sp};
+      setRunnerIntent(r,g,{source:'steal-result',force:true,updateAuto:false});
+    }   // 位置は走って合わせる
     else { r.out=true; r.outKind='tag'; }
   });
   const text = throwPlay && throwPlay.stealText ? throwPlay.stealText : '盗塁成功！';
@@ -4479,9 +4497,9 @@ function setManualThrow(t){
    確定したときに足し合わせる（そうしないと自動判定に上書きされて操作が効かない）。 */
 /* 自動の到達塁(autoGoal)は目安。プレイヤーがS/Xを押したらその指示が優先される。
    S = 今いる（or 向かっている）塁の次へ / X = 塁間にいるなら手前の塁へ戻る */
-/* 走者の行き先を変更する最初の単一書き手API。
-   Phase 1では自動・手動操作をここへ集約し、残る規則/結果経路は後続PRで順次移す。
-   source/intentSeqを録画へ残すことで、後段の黙った上書きを一次証拠から特定できる。 */
+/* 走者の行き先を変更できる唯一の書き手API。
+   Phase 2で自動・手動・捕球・挟殺・牽制・結果確定・ファウルの全経路をここへ集約した。
+   source/intentSeqを録画へ残すことで、後段の上書きも一次証拠から特定できる。 */
 function setRunnerIntent(r,g,opt){
   const o=opt||{}, goal=clamp(g,0,4), source=o.source||'auto';
   if(o.updateAuto!==false) r.autoGoal=goal;

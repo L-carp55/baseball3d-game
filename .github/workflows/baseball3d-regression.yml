@@ -79,13 +79,31 @@ jobs:
           new2="function runnerObservedDir(r){\n  return r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);\n}\n"
           assert base.count(old2)==1
           build(base.replace(old2,new2,1),'mut29')
+
+          old3="  if(o.updateAuto!==false) r.autoGoal=goal;\n"
+          new3="  r.autoGoal=goal;\n"
+          assert base.count(old3)==1
+          build(base.replace(old3,new3,1),'mut30')
+
+          # Structural mutation: reintroduce a second direct goal writer.
+          guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
+          guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
+          assert base.count(guard_old)==1
+          Path('/tmp/guard-mutated.html').write_text(base.replace(guard_old,guard_new,1),encoding='utf-8')
           PY
+
+      - name: Assert architecture mutation is rejected
+        run: |
+          if node _architecture_guard_20260808.js /tmp/guard-mutated.html; then
+            echo 'architecture mutation escaped'
+            exit 1
+          fi
 
       - name: Run browser harness
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29; do
+          for name in baseline mut28 mut29 mut30; do
             timeout 240 "$CHROME" \
               --headless=new \
               --no-sandbox \
@@ -116,15 +134,19 @@ jobs:
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=31 or bad:
+          if len(baseline)!=32 or bad:
               raise SystemExit('baseline failed')
 
           m28=load('mut28')
           m29=load('mut29')
+          m30=load('mut30')
           print('mut28',m28['test28_個別走者選択'])
           print('mut29',m29['test29_守備と走者意図の分離'])
+          print('mut30',m30['test30_RunnerIntent契約'])
           if m28['test28_個別走者選択'].get('verdict')!='FAIL':
               raise SystemExit('selection-scope mutation escaped')
           if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL':
               raise SystemExit('intent-leak mutation escaped')
+          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL':
+              raise SystemExit('RunnerIntent API mutation escaped')
           PY
