@@ -856,6 +856,38 @@
     out.test34_動的到達方向=res;
   })();
 
+  // ===== test35: 再照準の採用条件（ReachModel / OI-241系） =====
+  (function(){
+    const chk=[];
+    try{
+      newGame();
+      const f=fielders.find(x=>x.n==='遊');
+      f.cx=0; f.cy=0; f.sp=25; f.v=20; f.tx=40; f.ty=0; f.aimSeq=0;
+      ball={x:0,y:0,z:0,vx:50,vy:0,vz:0,landed:true};
+      chk.push({n:'小改善は現在目標を維持',ok:shouldAdoptFieldingTarget(f,38,0)===false});
+      const before=f.tx, seq=f.aimSeq||0;
+      chk.push({n:'却下時は目標も履歴も不変',ok:retargetFielder(f,38,0,'test-small')===false&&f.tx===before&&(f.aimSeq||0)===seq});
+      chk.push({n:'十分な改善は採用',ok:retargetFielder(f,30,0,'test-big')===true&&Math.abs(f.tx-30)<1e-9&&f.aimSource==='test-big'});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    const bad=chk.filter(x=>!x.ok);
+    out.test35_再照準採用={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test36: 旧目標を球が通過した時は切替を許可 =====
+  (function(){
+    let res={};
+    try{
+      newGame();
+      const f=fielders.find(x=>x.n==='遊');
+      f.cx=0; f.cy=0; f.sp=25; f.v=20; f.tx=40; f.ty=0;
+      ball={x:50,y:0,z:0,vx:50,vy:0,vz:0,landed:true};
+      const passed=targetPassedByBall(40,0);
+      const adopt=shouldAdoptFieldingTarget(f,65,0);
+      res={passed,adopt,verdict:(passed===true&&adopt===true)?'PASS':'FAIL'};
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    out.test36_通過済み目標=res;
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();

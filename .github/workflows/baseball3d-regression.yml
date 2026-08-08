@@ -106,6 +106,13 @@ jobs:
           assert base.count(old6)==1
           build(base.replace(old6,"const REACH_TURN_MAX=0;",1),'mut33')
 
+          assert base.count('const RETARGET_GAIN=0.12;')==1
+          build(base.replace('const RETARGET_GAIN=0.12;','const RETARGET_GAIN=0;',1),'mut35')
+
+          old7="  if(targetPassedByBall(f.tx,f.ty)) return true;\n"
+          assert base.count(old7)==1
+          build(base.replace(old7,'',1),'mut36')
+
           # Structural mutation: reintroduce a second direct goal writer.
           guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
           guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
@@ -123,6 +130,11 @@ jobs:
           reach_direct="    const t=runTime(f.sp*0.88,d);\n"
           assert base.count(reach_old)==1
           Path('/tmp/guard-reach-mutated.html').write_text(base.replace(reach_old,reach_direct,1),encoding='utf-8')
+
+          # Structural mutation: bypass retarget adoption gate in dynamic re-aim.
+          retarget_old="      retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');\n"
+          assert base.count(retarget_old)==1
+          Path('/tmp/guard-retarget-mutated.html').write_text(base.replace(retarget_old,"      setTarget(prim,b2.x,b2.y);\n",1),encoding='utf-8')
           PY
 
       - name: Assert architecture mutation is rejected
@@ -139,12 +151,16 @@ jobs:
             echo 'ReachModel architecture mutation escaped'
             exit 1
           fi
+          if node _architecture_guard_20260808.js /tmp/guard-retarget-mutated.html; then
+            echo 'retarget architecture mutation escaped'
+            exit 1
+          fi
 
       - name: Run browser harness
         run: |
           CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
           test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33; do
+          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36; do
             timeout 240 "$CHROME" \
               --headless=new \
               --no-sandbox \
@@ -175,31 +191,26 @@ jobs:
           baseline=load('baseline')
           bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
           print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=36 or bad:
+          if len(baseline)!=38 or bad:
               raise SystemExit('baseline failed')
 
-          m28=load('mut28')
-          m29=load('mut29')
-          m30=load('mut30')
-          m31=load('mut31')
-          m32=load('mut32')
-          m33=load('mut33')
+          m28=load('mut28'); m29=load('mut29'); m30=load('mut30')
+          m31=load('mut31'); m32=load('mut32'); m33=load('mut33')
+          m35=load('mut35'); m36=load('mut36')
           print('mut28',m28['test28_個別走者選択'])
           print('mut29',m29['test29_守備と走者意図の分離'])
           print('mut30',m30['test30_RunnerIntent契約'])
           print('mut31',m31['test31_FieldingAssignment契約'])
           print('mut32',m32['test32_壁反射担当交代'])
           print('mut33',m33['test33_ReachModel契約'],m33['test34_動的到達方向'])
-          if m28['test28_個別走者選択'].get('verdict')!='FAIL':
-              raise SystemExit('selection-scope mutation escaped')
-          if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL':
-              raise SystemExit('intent-leak mutation escaped')
-          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL':
-              raise SystemExit('RunnerIntent API mutation escaped')
-          if m31['test31_FieldingAssignment契約'].get('verdict')!='FAIL':
-              raise SystemExit('role-stealing mutation escaped')
-          if m32['test32_壁反射担当交代'].get('verdict')!='FAIL':
-              raise SystemExit('wall-handoff mutation escaped')
-          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL':
-              raise SystemExit('ReachModel turn mutation escaped')
+          print('mut35',m35['test35_再照準採用'])
+          print('mut36',m36['test36_通過済み目標'])
+          if m28['test28_個別走者選択'].get('verdict')!='FAIL': raise SystemExit('selection-scope mutation escaped')
+          if m29['test29_守備と走者意図の分離'].get('verdict')!='FAIL': raise SystemExit('intent-leak mutation escaped')
+          if m30['test30_RunnerIntent契約'].get('verdict')!='FAIL': raise SystemExit('RunnerIntent API mutation escaped')
+          if m31['test31_FieldingAssignment契約'].get('verdict')!='FAIL': raise SystemExit('role-stealing mutation escaped')
+          if m32['test32_壁反射担当交代'].get('verdict')!='FAIL': raise SystemExit('wall-handoff mutation escaped')
+          if m33['test33_ReachModel契約'].get('verdict')!='FAIL' or m33['test34_動的到達方向'].get('verdict')!='FAIL': raise SystemExit('ReachModel turn mutation escaped')
+          if m35['test35_再照準採用'].get('verdict')!='FAIL': raise SystemExit('retarget gain mutation escaped')
+          if m36['test36_通過済み目標'].get('verdict')!='FAIL': raise SystemExit('passed-target mutation escaped')
           PY

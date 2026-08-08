@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-17';
+const BUILD = 'b0805-18';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -125,7 +125,8 @@ function recTick(dt){
     intent: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r.intentSource||'legacy'}#${r.intentSeq||0}:d${runnerObservedDir(r)}`),
     fld: fielders.map(f=>`${f.n}${r2(f.cx)},${r2(f.cy)}${f.primary?'*':''}${f.coverBase!=null?('c'+f.coverBase):''}`),
-    role: fielders.map(f=>`${f.n}:${f.roleSource||'legacy'}#${f.roleSeq||0}`)
+    role: fielders.map(f=>`${f.n}:${f.roleSource||'legacy'}#${f.roleSeq||0}`),
+    aim: fielders.map(f=>`${f.n}:${f.aimSource||'legacy'}#${f.aimSeq||0}:${r2(f.tx)},${r2(f.ty)}`)
   });
   if(REC.cur.f.length>400) REC.cur.f.shift();   // 1プレー40秒ぶんで頭打ち
 }
@@ -1470,6 +1471,34 @@ function clampField(x,y){
   return d>max ? [x/d*max, y/d*max] : [x,y];
 }
 function setTarget(f,x,y){ const p=clampField(x,y); f.tx=p[0]; f.ty=p[1]; }
+/* 再照準は「新しい予測が出た」だけでは採用しない。0.2秒ごとに無条件で
+   setTargetしていたため、野手が既に走っている目標を捨てて小さな予測差へ何度も
+   方向転換し、実走距離が伸びた。ReachModelで現在目標と候補目標の残り時間を
+   同じ物差しで比べ、0.12秒以上の改善か、球が旧目標を通過した時だけ切り替える。 */
+const RETARGET_GAIN=0.12;
+function targetPassedByBall(x,y){
+  if(!ball) return false;
+  const vx=ball.vx||0, vy=ball.vy||0;
+  if(Math.hypot(vx,vy)<1) return false;
+  return vx*(x-ball.x)+vy*(y-ball.y) < 0;
+}
+function fieldingTargetETA(f,x,y){
+  return reachTimeToPoint(f,x,y,{useCurrent:true,reach:CATCH_R,reactScale:0.4,turn:true});
+}
+function shouldAdoptFieldingTarget(f,x,y,minGain=RETARGET_GAIN){
+  if(f.tx==null || f.ty==null) return true;
+  if(Math.hypot(x-f.tx,y-f.ty)<0.75) return false;
+  if(targetPassedByBall(f.tx,f.ty)) return true;
+  const keep=fieldingTargetETA(f,f.tx,f.ty);
+  const next=fieldingTargetETA(f,x,y);
+  return keep-next >= minGain;
+}
+function retargetFielder(f,x,y,source){
+  if(!shouldAdoptFieldingTarget(f,x,y)) return false;
+  setTarget(f,x,y);
+  f.aimSource=source||'replan'; f.aimSeq=(f.aimSeq||0)+1;
+  return true;
+}
 /* 守備役割の唯一の書き手群。primaryとcoverBaseを別々の場面コードから変更すると、
    旧役割が消えたり、一人が二役になったり、担当表示と捕球判定が食い違う。
    roleSource/roleSeqを録画へ残し、役割変更を原子的に追跡できるようにする。 */
@@ -3039,9 +3068,10 @@ function stepFlight(dt){
     if(ball.landed && bspg<10){
       const b2={x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz};
       for(let i=0;i<480 && Math.hypot(b2.vx,b2.vy)>1; i++) stepBall(b2,PHYS_H);
-      setTarget(prim, b2.x, b2.y);
+      retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');
     }else{
-      const ip=interceptPoint(prim); setTarget(prim, ip[0], ip[1]);
+      const ip=interceptPoint(prim);
+      retargetFielder(prim,ip[0],ip[1],'intercept-replan');
     }
   }
   /* 担当が捕り損ねて球が脇を抜けた時は、その場から一番早く追いつける野手へ引き継ぐ。

@@ -103,6 +103,13 @@ const wallGuard=/if\(handoff\.changed\) return false;/.test(script);
 check('wall handoff ends stale-primary tick',wallGuard,wallGuard);
 const resetBody=stripComments(extractFunction('resetFielders'));
 check('reset clears all fielding assignments',/clearFieldingAssignments\(/.test(resetBody),'reset boundary');
+const retargetBody=stripComments(extractFunction('shouldAdoptFieldingTarget'));
+check('retarget adoption uses ReachModel',/fieldingTargetETA\(/.test(retargetBody)&&/targetPassedByBall\(/.test(retargetBody),'ReachModel + passed-target');
+const flightBody=stripComments(extractFunction('stepFlight'));
+check('stepFlight routes dynamic aim through retarget gate',count(/retargetFielder\s*\(/g,flightBody)>=2,
+  (flightBody.match(/retargetFielder\s*\(/g)||[]).length);
+check('stepFlight has no legacy direct dynamic target writes',
+  !/setTarget\(prim,\s*b2\.x/.test(flightBody)&&!/setTarget\(prim,\s*ip\[0\]/.test(flightBody),'retarget gate');
 const failed=checks.filter(x=>!x.ok);
 console.log(JSON.stringify({file,build,metrics:{directGoal,directAutoGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
 if(failed.length) process.exit(1);
