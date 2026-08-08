@@ -24,6 +24,7 @@ for(const n of names) vm.runInContext(extract(n),ctx,{filename:n+'.js'});
 function rr(origin,p,goal){return {origin,p,goal,autoGoal:goal,extra:0,sp:23,v:0,obsDir:0,out:false,intentSource:'fixture',intentSeq:0};}
 function clear(){for(const k of ['s','z','x','1','2','3'])ctx.held[k]=false;}
 function assert(c,m){if(!c)throw new Error(m);}
+// Human-play regression (b0805-21): on a high fly, S must advance immediately and X must return immediately; automatic halfway/tag-up logic must not reinterpret the explicit command.
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
 let batter=rr(0,1,1), lead=rr(2,2.4,3);ctx.runners=[batter,lead];clear();ctx.held.z=true;ctx.applyRunnerKeys();assert(batter.goal===1&&lead.goal===3&&lead.cmd==='S'&&lead.intentSource==='manual'&&!lead.tagUp,'Z leak');
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
