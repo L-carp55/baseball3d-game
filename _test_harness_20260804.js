@@ -244,7 +244,7 @@
       lf.cx=fromX; lf.cy=fromY; lf.arm=armRaw; lf.run=run;
       fielders.forEach(f=>{ f.primary=(f===lf); });
       ball={x:lf.cx,y:lf.cy,z:4.6,t:0,vx:0,vy:0,vz:0,landed:true,maxZ:20};
-      runners=[{p:2.5,goal:4,autoGoal:4,origin:2,sp:24,v:20,dir:1,cmd:'S',extra:0}];
+      runners=[{p:2.5,goal:4,autoGoal:4,origin:2,sp:24,v:20,dir:1,obsDir:1,cmd:'S',extra:0}];
       throwPlay={stage:'transfer', t:99, transfer:0.01, thrower:lf, kind:'outfield',
         award:0, target, relayed:true, fieldT:0, stepChecked:true};
       S.phase='throwing';
@@ -599,8 +599,8 @@
     let res={};
     try{
       newGame(); S.outs=2; S.preOuts=0;
-      const home={origin:3,p:3.90,goal:4,autoGoal:4,dir:1,v:23,sp:23,out:false};
-      const batter={origin:0,p:1.02,goal:1,autoGoal:1,dir:0,v:0,sp:23,out:false};
+      const home={origin:3,p:3.90,goal:4,autoGoal:4,dir:1,obsDir:1,v:23,sp:23,out:false};
+      const batter={origin:0,p:1.02,goal:1,autoGoal:1,dir:0,obsDir:0,v:0,sp:23,out:false};
       runners=[home,batter];
       const rf=fielders.find(f=>f.n==='右'); rf.cx=170; rf.cy=170;
       const oldTE=window.throwETAof, oldRE=window.runnerETA;
@@ -675,6 +675,64 @@
     }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
     const bad=chk.filter(x=>!x.ok);
     out.test27_投球モーション時系列={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test28: 高い飛球で個別選択が打者走者へ漏れない（OI-088 / OI-152 / OI-165） =====
+  (function(){
+    const chk=[];
+    const keys=['s','z','x','1','2','3'];
+    const clear=()=>keys.forEach(k=>held[k]=false);
+    const rr=(origin,p,goal)=>({origin,p,goal,autoGoal:goal,extra:0,sp:23,v:0,obsDir:0,out:false,intentSource:'fixture',intentSeq:0});
+    const setup=()=>{ newGame(); S.outs=0; S.preOuts=0; S.phase='flight';
+      ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1}; clear(); };
+    try{
+      setup();
+      const batter=rr(0,1.00,1), lead=rr(2,2.40,3); runners=[batter,lead]; held['z']=true;
+      applyRunnerKeys();
+      chk.push({n:'Zで先頭だけ・打者不変',ok:batter.goal===1&&lead.tagUp===true});
+
+      setup();
+      const b1=rr(0,0.20,1), first=rr(1,1.08,1), third=rr(3,3.08,3);
+      runners=[b1,first,third]; held['1']=true; held['s']=true; applyRunnerKeys();
+      chk.push({n:'1+Sで一塁走者だけ',ok:b1.goal===1&&Math.abs(first.goal-1.45)<1e-9&&third.goal===3});
+
+      setup();
+      const b2=rr(0,0.20,1), first2=rr(1,1.08,1), third2=rr(3,3.08,3);
+      runners=[b2,first2,third2]; held['3']=true; held['s']=true; applyRunnerKeys();
+      chk.push({n:'3+Sで三塁走者だけ',ok:b2.goal===1&&first2.goal===1&&third2.goal===3&&third2.tagUp===true});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    finally{ clear(); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test28_個別走者選択={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test29: 守備判断は走者の内部goalではなく実移動方向を見る（OI-056 / Sol所見14） =====
+  (function(){
+    const chk=[];
+    try{
+      function pick(goal,legacyDir){
+        newGame(); S.outs=0; S.preOuts=0;
+        const r={origin:2,p:2.42,goal,autoGoal:goal,obsDir:1,dir:legacyDir,v:18,sp:23,out:false};
+        runners=[r];
+        const f=fielders.find(x=>x.n==='中'); f.cx=0; f.cy=180;
+        const oldTE=window.throwETAof, oldRE=window.runnerETA, oldRB=window.runnerBackETA;
+        try{
+          window.throwETAof=()=>0.40; window.runnerETA=()=>1.20; window.runnerBackETA=()=>0.10;
+          const x=chooseThrowTarget(f); return x&&x.nb;
+        }finally{ window.throwETAof=oldTE; window.runnerETA=oldRE; window.runnerBackETA=oldRB; }
+      }
+      const a=pick(3,1), b=pick(2,-1);
+      chk.push({n:'goalだけ変えても送球先不変',ok:a===3&&b===3});
+
+      newGame();
+      const r={origin:2,p:2.20,goal:3,autoGoal:3,obsDir:0,dir:1,v:18,sp:23,out:false}; runners=[r];
+      updateRunners(1/60); const forward=runnerObservedDir(r);
+      setManualGoal(r,2,'X'); const beforeMove=runnerObservedDir(r);
+      updateRunners(1/60); const afterMove=runnerObservedDir(r);
+      chk.push({n:'goal変更だけでは観測方向が反転しない',ok:forward===1&&beforeMove===1&&afterMove===-1});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test29_守備と走者意図の分離={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
   console.log(JSON.stringify(out,null,1));
