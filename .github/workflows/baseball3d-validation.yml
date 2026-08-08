@@ -29,13 +29,14 @@ jobs:
           node --check validation/run_recording_corpus_20260808.js
           node --check validation/run_1000_fielding_routes_20260808.js
           python - <<'PY'
-          import json
+          import json,hashlib
           p='validation/recording_scenarios_20260808.json'
-          data=json.load(open(p,encoding='utf-8'))
+          raw=open(p,'rb').read(); data=json.loads(raw.decode('utf-8'))
           assert data['schema']=='baseball3d-owner-scenarios-v1'
           assert len(data['plays'])==138, len(data['plays'])
           assert len(data['fields'])==8
-          print({'recording_files':50,'plays':len(data['plays'])})
+          assert hashlib.sha256(raw).hexdigest()=='74144e093488943f6ff2621b2e18aca8d76ca5c63cfdee1333f0f42f0223a487'
+          print({'recording_files':50,'plays':len(data['plays']),'sha256':hashlib.sha256(raw).hexdigest()})
           PY
 
       - name: Build validation HTMLs
@@ -47,7 +48,6 @@ jobs:
           freeze='<script>window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";'
           assert base.count('<script>\n"use strict";')==1
           base=base.replace('<script>\n"use strict";',freeze,1)
-
           corpus=json.loads(Path('validation/recording_scenarios_20260808.json').read_text(encoding='utf-8'))
           corpus_js='window.__OWNER_RECORDING_CORPUS='+json.dumps(corpus,ensure_ascii=False,separators=(',',':'))+';'
           rec=Path('validation/run_recording_corpus_20260808.js').read_text(encoding='utf-8')
