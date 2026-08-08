@@ -1,10 +1,10 @@
 /* 50 full-game calibration run using the real pitch/contact/fielding/inning state machine.
-   The player batting half gets the same swing-decision model used by CPU batters, so both
-   halves can run unattended while preserving each roster's actual abilities.
+   The player batting half gets an unattended mirror swing scheduler; it is NOT treated as the
+   calibrated CPU batter. REBUILD_CHARTER's K≈22% / BB≈8% anchors apply to team1 CPU batting only.
 
-   Acceptance anchors were declared before this run from REBUILD_CHARTER:
+   Acceptance anchors were declared before the first run from REBUILD_CHARTER:
    CPU batter K≈22%, BB≈8%; strong lineup scoring historical 5.8–9.3 R/G;
-   CPU lineup historical ~2.5 R/G. Windows are deliberately broad enough for variance. */
+   CPU lineup historical ~2.5 R/G. Numeric windows are unchanged from the first run. */
 (function(){
   const LIMITS={games:50,nonterminationMax:0,
     team0RunsMin:4.5,team0RunsMax:10.0,team1RunsMin:1.5,team1RunsMax:4.5,
@@ -23,6 +23,19 @@
       pitch.cpuSwingT=1+err/(pitch.dur*1000);
       pitch.cpuOff={dx:gauss(30/sk),dy:gauss(30/sk)};
     }
+  }
+  function stallSnapshot(g,steps){
+    const st=(throwPlay&&typeof playLifecycleState==='function')?playLifecycleState():null;
+    return {g,why:'nontermination',steps,phase:S.phase,inning:S.inning,half:S.half,outs:S.outs,
+      score:[total(0),total(1)],msg:S.msg||'',playClock:+(S.playClock||0).toFixed(2),
+      throwPlay:throwPlay?{stage:throwPlay.stage,target:throwPlay.target,kind:throwPlay.kind,
+        t:+(throwPlay.t||0).toFixed(2),relayTo:throwPlay.relayTo??null,chased:!!throwPlay.chased,
+        source:throwPlay.lifecycleSource||'',reason:throwPlay.lifecycleReason||'',seq:throwPlay.lifecycleSeq||0}:null,
+      lifecycle:st,
+      ball:ball?{x:+(ball.x||0).toFixed(2),y:+(ball.y||0).toFixed(2),z:+(ball.z||0).toFixed(2),
+        speed:+Math.hypot(ball.vx||0,ball.vy||0,ball.vz||0).toFixed(2),landed:!!ball.landed}:null,
+      runners:runners.filter(r=>!r.out).map(r=>({origin:r.origin,p:+r.p.toFixed(3),goal:+r.goal.toFixed(3),
+        dir:runnerObservedDir(r),v:+(r.v||0).toFixed(2),cmd:r.cmd||'',mustReturn:!!r.mustReturn,tagUp:!!r.tagUp}))};
   }
   const oldRandom=Math.random, oldNext=nextBatter;
   const aggregate={runs:[0,0],hits:[0,0],errors:[0,0],pa:[0,0],k:[0,0],bb:[0,0],games:[],nontermination:0};
@@ -48,7 +61,7 @@
         if(S.phase==='play') S.timer=Math.min(S.timer,0);
         update(1/60);
       }
-      if(!S.over){aggregate.nontermination++; aggregate.games.push({g,why:'nontermination',phase:S.phase,inning:S.inning,half:S.half}); continue;}
+      if(!S.over){aggregate.nontermination++; aggregate.games.push(stallSnapshot(g,steps)); continue;}
       const gr=[total(0),total(1)], gh=[S.hits[0],S.hits[1]], ge=[(S.errors||[0,0])[0],(S.errors||[0,0])[1]];
       for(let t=0;t<2;t++){aggregate.runs[t]+=gr[t];aggregate.hits[t]+=gh[t];aggregate.errors[t]+=ge[t];aggregate.pa[t]+=pa[t];aggregate.k[t]+=k[t];aggregate.bb[t]+=bb[t];}
       aggregate.games.push({g,runs:gr,hits:gh,errors:ge,pa:pa.slice(),k:k.slice(),bb:bb.slice(),inning:S.inning});
@@ -59,20 +72,24 @@
   const rg=aggregate.runs.map(x=>div(x,n)), hg=aggregate.hits.map(x=>div(x,n)), eg=aggregate.errors.map(x=>div(x,n));
   const paTotal=aggregate.pa[0]+aggregate.pa[1], kTotal=aggregate.k[0]+aggregate.k[1], bbTotal=aggregate.bb[0]+aggregate.bb[1];
   const kr=div(kTotal,paTotal), bbr=div(bbTotal,paTotal);
+  const teamKR=aggregate.k.map((x,t)=>div(x,aggregate.pa[t])), teamBBR=aggregate.bb.map((x,t)=>div(x,aggregate.pa[t]));
   const checks={
     nontermination:aggregate.nontermination<=LIMITS.nonterminationMax,
     team0Runs:rg[0]>=LIMITS.team0RunsMin&&rg[0]<=LIMITS.team0RunsMax,
     team1Runs:rg[1]>=LIMITS.team1RunsMin&&rg[1]<=LIMITS.team1RunsMax,
-    strikeoutRate:kr>=LIMITS.strikeoutRateMin&&kr<=LIMITS.strikeoutRateMax,
-    walkRate:bbr>=LIMITS.walkRateMin&&bbr<=LIMITS.walkRateMax,
+    cpuStrikeoutRate:teamKR[1]>=LIMITS.strikeoutRateMin&&teamKR[1]<=LIMITS.strikeoutRateMax,
+    cpuWalkRate:teamBBR[1]>=LIMITS.walkRateMin&&teamBBR[1]<=LIMITS.walkRateMax,
     team0Hits:hg[0]>=LIMITS.team0HitsMin&&hg[0]<=LIMITS.team0HitsMax,
     team1Hits:hg[1]>=LIMITS.team1HitsMin&&hg[1]<=LIMITS.team1HitsMax,
     errors:eg[0]<=LIMITS.errorsPerTeamGameMax&&eg[1]<=LIMITS.errorsPerTeamGameMax
   };
   const out={LIMITS,games:LIMITS.games,completed:n,nontermination:aggregate.nontermination,
     runsPerGame:rg.map(x=>+x.toFixed(3)),hitsPerGame:hg.map(x=>+x.toFixed(3)),errorsPerGame:eg.map(x=>+x.toFixed(3)),
-    pa:aggregate.pa,strikeouts:aggregate.k,walks:aggregate.bb,strikeoutRate:+kr.toFixed(4),walkRate:+bbr.toFixed(4),
-    checks,sampleGames:aggregate.games.slice(0,10),verdict:Object.values(checks).every(Boolean)?'PASS':'FAIL'};
+    pa:aggregate.pa,strikeouts:aggregate.k,walks:aggregate.bb,
+    teamStrikeoutRate:teamKR.map(x=>+x.toFixed(4)),teamWalkRate:teamBBR.map(x=>+x.toFixed(4)),
+    aggregateStrikeoutRate:+kr.toFixed(4),aggregateWalkRate:+bbr.toFixed(4),
+    checks,stalls:aggregate.games.filter(x=>x.why==='nontermination'),sampleGames:aggregate.games.filter(x=>!x.why).slice(0,8),
+    verdict:Object.values(checks).every(Boolean)?'PASS':'FAIL'};
   window.__GAME50_RESULT=out;
   document.body.setAttribute('data-game50',encodeURIComponent(JSON.stringify(out)));
   console.log('game50',out);
