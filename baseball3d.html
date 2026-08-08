@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-19';
+const BUILD = 'b0805-20';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -120,7 +120,8 @@ function recTick(dt){
       land:!!ball.landed, air:!!ball.canCatchAir, pri:ball.primary?ball.primary.n:null}:null,
     thr: throwPlay?{st:throwPlay.stage, to:throwPlay.target,
       by:throwPlay.thrower?throwPlay.thrower.n:null, kind:throwPlay.kind,
-      ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0}:null,
+      ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0,
+      ls:throwPlay.lifecycleSource||'legacy', lq:throwPlay.lifecycleSeq||0, lr:throwPlay.lifecycleReason||''}:null,
     run: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r2(r.p)}→${r2(r.goal)}${r.out?'X':''}${r.cmd||''}${r.mustReturn?'R':''}${r.tagUp?'T':''}`),
     intent: runners.filter(r=>!r.out||r.p<4).map(r=>
@@ -2063,17 +2064,15 @@ function updateThrowPhase(dt){
      オーナー指摘の最多系統（塁間で打ち切られる12件・本塁未到達で得点4件・
      送球が空中なのに打ち切り3件）の共通原因。実測でも今日の最長プレーは11.2秒で
      12秒の閾値まで余裕0.8秒しかなかった＝日常的に踏む位置にあった。 */
-  const flyWait = (T.kind==='fly' && runners.some(r=>!r.out && r.origin>0 && r.origin<4) && T.t<1.5);
-  const keyHeld = isPlayerBatting() && (held['s']||held['z']||held['x']);
-  const allSettled = runners.every(r=> r.out ||
-    (Math.abs(r.p-r.goal)<0.02 && Math.abs(r.p-Math.round(r.p))<0.02));
-  const midBase  = runners.some(r=>!r.out && Math.abs(r.p-Math.round(r.p))>=0.02);
-  const ballLive = !!(ball && !ball.land && ball.z>0.8);          // 送球がまだ空中
-  /* 歯止めが立っている間は打ち切りを延ばす。ただし無限には延ばさない（+8秒が上限）。 */
+  const lifecycle=playLifecycleState();
+  const flyWait=lifecycle.flyDecision, keyHeld=lifecycle.keyHeld;
+  const allSettled=!lifecycle.unsettled, midBase=lifecycle.unsettled, ballLive=lifecycle.liveBall;
+  /* watchdogは終了を「要求」するだけで、ライブ送球・塁間走者・操作中の門番を迂回しない。
+     閉じられない時はreturnせず、そのフレームの捕球・回収・走塁処理を続ける。 */
   const grace = (midBase || keyHeld || ballLive) ? 8 : 0;
   if(S.playClock > (inRundown?24:12) + grace){
     if(inRundown) return endRundown('セーフ！','#3fd66a');
-    return concludePlay(true);   // 時間切れは門番を通さず強制確定（無限継続の歯止め）
+    if(requestPlayConclusion('watchdog')) return;
   }
   /* 投手へ返すだけになり、走者も全員止まっているなら、そこでプレーは終わり。
      ボールが投手の手に戻るまで待っていたため、走者が一塁に着いて何も起きていないのに
@@ -2085,7 +2084,11 @@ function updateThrowPhase(dt){
      走者が塁間にいる間はプレーを閉じない（塁の上に着いていることまで確認する）。
      走塁キーを押している間も閉じない。次の塁を狙おうとしているのに
      プレーを終わらせてしまうと、操作が効かなかったように見える。 */
-  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled) return concludePlay();
+  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled){
+    /* 終了要求がlive-ball等で拒否された時はreturnしない。ここは物理更新より前なので、
+       returnすると同じ球位置・速度のまま毎フレーム再び拒否され、送球が永久に凍結する。 */
+    if(requestPlayConclusion('settled-return')) return;
+  }
   updateRunners(dt);
   moveFielders(dt,true);
   /* ボールを持っている野手は誰か。持っている間はいつでもタッチが成立する。 */
@@ -2112,7 +2115,7 @@ function updateThrowPhase(dt){
       /* 打者走者を一塁到達前にアウトにしたものは、触っていても普通のゴロアウト。
          「二ゴロ → タッチアウト！」と出ていて不自然だった。 */
       if(!(tagged.origin===0 && tagged.p<1-1e-9)){ T.rdText='タッチアウト！'; T.rdColor='#95a3b4'; }
-      return concludePlay();
+      return requestPlayConclusion('request');
     }
   }
 
@@ -2162,9 +2165,9 @@ function updateThrowPhase(dt){
              発火条件そのもの（けん制は早出し時しか起きない）なので、それを見ると
              常に真になり中止が一度も働かなくなる。 */
           const wasJump = (T.jumpLead||0) >= 0.12;
-          if(tr && Math.abs(tr.p-tr.origin)<=0.05 && !wasJump) return concludePlay();
+          if(tr && Math.abs(tr.p-tr.origin)<=0.05 && !wasJump) return requestPlayConclusion('request');
           if(T.t < T.transfer + 2.6) return;         // カバーが入るまで持って待つ
-          return concludePlay();                     // それでも間に合わない＝中止
+          return requestPlayConclusion('request');                     // それでも間に合わない＝中止
         }
       }
       /* 投げる瞬間に、その時点の走者の位置で投げ先を決め直す。
@@ -2313,7 +2316,7 @@ function updateThrowPhase(dt){
       dRecv=Math.hypot(ball.x-T.receiver.cx, ball.y-T.receiver.cy);
       T.dest=[ball.x,ball.y];
     }
-    if(T.chased && T.t>8) return concludePlay();   // 収拾できなければプレーを閉じる
+    if(T.chased && T.t>8 && requestPlayConclusion('chase-watchdog')) return;
     /* 高さも見る。横の距離だけで捕球としていたため、受け手の頭のはるか上（19ft）を
        通過している送球まで吸い込まれていた（録画で確認）。
        跳んで届くのは約9ftまで。それより高い送球はそのまま頭上を越えていく＝悪送球。 */
@@ -2598,7 +2601,7 @@ function endRundown(text,color){
     setThrowTarget(T,tgtBase,'rundown-turn');
     return;
   }
-  concludePlay();
+  requestPlayConclusion('request');
 }
 
 /* 投手への返球を受けた時の締め。本塁へ向かって走っている走者がいる限りプレーは終わっていない
@@ -2622,7 +2625,7 @@ function concludeOrChaseHome(){
     setThrowTarget(T,decision.nb,'return-continue-'+decision.source);
     return;
   }
-  return concludePlay();
+  return requestPlayConclusion('request');
 }
 function judgeAtBase(b){
   const T=throwPlay;
@@ -2682,7 +2685,7 @@ function judgeAtBase(b){
                             .sort((x,y)=>y.p-x.p)[0];
       if(tagger && runnerETA(tagger,b)>0.02) return beginRundown(tagger, b);
     }
-    return concludePlay();
+    return requestPlayConclusion('request');
   }
   /* 外野への安打でも内野ゴロと同じように判定する。
      以前は「塁打数ぶんは無条件セーフ」にしていたので、間に合っていない走者も刺せなかった。 */
@@ -2735,7 +2738,7 @@ function judgeAtBase(b){
       return;
     }
   }
-  concludePlay();
+  requestPlayConclusion('request');
 }
 function countOuts(){ return runners.filter(r=>r.out).length; }
 /* アウトが成立したその瞬間にアウトカウントを1つ増やす。
@@ -2770,6 +2773,42 @@ const baseOuts = ()=> S.outs-(S.preOuts||0);   // このプレーが始まる前
 /* フライ捕球後に別のアウトが続いた時も、元の打球種別と捕球野手を保持する。 */
 function flyOutLabel(T,nm){
   return `${T.flyBy||nm}${(ball&&ball.flyKind)||'フライ'} アウト`;
+}
+/* プレー終了の正本。終了要求側がそれぞれ独自に「もう終わった」と判断すると、
+   塁間・送球中・操作中・挟殺中を別々の経路が見落とす。ここでは見えているプレー状態を
+   一度だけ分類し、第三アウト以外は未解決条件が1つでもあれば終了させない。 */
+function playLifecycleState(){
+  const T=throwPlay;
+  const thirdOut=baseOuts()+countOuts()>=3;
+  const stageLive=!!(T && (T.stage==='fly' || (T.stage==='rundown' && T.rd && T.rd.sub==='relay')));
+  const ballSpeed=ball?Math.hypot(ball.vx||0,ball.vy||0,ball.vz||0):0;
+  const liveBall=!!(stageLive && ball && (ball.z>0.8 || ballSpeed>3));
+  const goHeld=isPlayerBatting() && (held['s']||held['z']) && runners.some(r=>!r.out&&r.p<3.98);
+  const backHeld=isPlayerBatting() && held['x'] && runners.some(r=>!r.out &&
+    ((r.origin===0&&r.p>1.02)||(r.origin>0&&r.p>r.origin+0.02)));
+  const keyHeld=!!(goHeld||backHeld);
+  const unsettled=runners.some(r=>!r.out&&r.p<3.97&&
+    (Math.abs(r.p-Math.round(r.p))>=0.02 || Math.abs(r.p-r.goal)>=0.02));
+  const activeRundown=!!(T&&T.stage==='rundown'&&T.rd&&!T.rdText);
+  const flyDecision=!!(T&&T.kind==='fly'&&T.t<1.5&&runners.some(r=>!r.out&&r.origin>0&&r.origin<4));
+  const canClose=thirdOut || !(liveBall||keyHeld||unsettled||activeRundown||flyDecision);
+  return {thirdOut,liveBall,keyHeld,unsettled,activeRundown,flyDecision,canClose};
+}
+function requestPlayConclusion(source){
+  const T=throwPlay;
+  if(!T) return false;
+  const st=playLifecycleState();
+  T.lifecycleSource=source||'request';
+  T.lifecycleSeq=(T.lifecycleSeq||0)+1;
+  T.lifecycleReason=st.thirdOut?'third-out':(st.liveBall?'live-ball':(st.activeRundown?'rundown':
+    (st.keyHeld?'input':(st.flyDecision?'fly-window':(st.unsettled?'runner-unsettled':'settled')))));
+  if(!st.thirdOut && (st.liveBall||st.activeRundown||st.keyHeld||st.flyDecision)){
+    if(st.keyHeld) T.holdOpen=true;
+    return false;
+  }
+  const before=throwPlay;
+  concludePlay(false);
+  return !!before && !throwPlay;
 }
 function concludePlay(force){
   /* ★2026-08-05修理(録画160954): 「塁間の走者がいる限り閉じない」を呼び出し元ごとに

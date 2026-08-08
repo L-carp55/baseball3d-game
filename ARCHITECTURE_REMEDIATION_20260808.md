@@ -287,3 +287,15 @@ Phase 4基盤完了後のラチェット:
 - 手動指定、フライ、盗塁、牽制、中継の固定ルールを同じ優先順位表へ置く。
 - 守備側の手動`P`指定が一塁へ変換される旧経路を廃止する。
 - architecture guardで`chooseThrowTarget`の直接呼び出しと第二の`T.target`書き手を禁止する。
+
+
+## Phase 6 — b0805-20 PlayLifecycle
+
+- 全てのプレー終了要求を`requestPlayConclusion`へ集約する。
+- `playLifecycleState`がライブ送球・塁間走者・有効な走塁入力・未決着挟殺・フライ判断猶予を一括判定する。
+- 第三アウトのみ未解決条件を上書きして即終了可能。
+- watchdogは`force=true`で門番を迂回せず、終了拒否時は同じフレームの回収・捕球・走塁処理を継続する。
+- 旧`ball.land`参照を廃止し、送球stage＋球の高さ/速度からライブ状態を判断する。
+- `lifecycleSource / lifecycleSeq / lifecycleReason`を録画へ残す。
+
+- 追加検証で、終了gatewayを早期return位置へ機械置換すると拒否時にも呼出元がreturnし、ライブ送球が凍結することを検出。物理更新前の終了要求は「実際に閉じた時だけreturn」へ固定した。

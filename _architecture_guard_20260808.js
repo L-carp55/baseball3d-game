@@ -61,7 +61,7 @@ check('cover clear writer lives in clearCoverRole',
 check('cover assign writer lives in assignCoverRole',
   count(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g,assignCoverBody)===1,
   (assignCoverBody.match(/\b[A-Za-z_$][\w$]*\.coverBase\s*=(?!=)/g)||[]).length);
-check('play lifecycle call ratchet <=10',concludeCalls<=10,concludeCalls);
+check('concludePlay is callable only from PlayLifecycle gateway',concludeCalls===1,concludeCalls);
 
 for(const name of ['applyRunnerKeys','updateStealCommands']){
   const body=stripComments(extractFunction(name));
@@ -122,6 +122,16 @@ check('ThrowDecision owns automatic target selection',/chooseThrowTarget\s*\(/.t
 const manualBody=stripComments(extractFunction('setManualThrow'));
 check('manual throw uses ThrowDecision writer',/setThrowTarget\s*\(/.test(manualBody)&&!/throwPlay\.target\s*=/.test(manualBody),'manual boundary');
 check('throw decision is recorded',/decisionSource/.test(script)&&/decisionSeq/.test(script),'decision audit');
+const lifecycleBody=stripComments(extractFunction('playLifecycleState'));
+check('PlayLifecycle blocks live throws',/T\.stage==='fly'/.test(lifecycleBody)&&/liveBall/.test(lifecycleBody),'live throw gate');
+check('PlayLifecycle has third-out override',/canClose=thirdOut\s*\|\|/.test(lifecycleBody),'third out');
+const requestBody=stripComments(extractFunction('requestPlayConclusion'));
+check('PlayLifecycle gateway owns final conclusion',/playLifecycleState\s*\(/.test(requestBody)&&/concludePlay\s*\(false\)/.test(requestBody),'gateway');
+check('force conclusion bypass removed',!/concludePlay\s*\(\s*true\s*\)/.test(clean),'no force bypass');
+const throwPhaseBody=stripComments(extractFunction('updateThrowPhase'));
+check('watchdog uses lifecycle gateway',clean.includes("requestPlayConclusion('watchdog')")&&concludeCalls===1,'watchdog gateway');
+check('rejected pre-physics conclusion falls through',!/allSettled\)\s*return requestPlayConclusion/.test(clean),'no frozen live throw');
+check('play lifecycle is recorded',/lifecycleSource/.test(script)&&/lifecycleSeq/.test(script)&&/lifecycleReason/.test(script),'lifecycle audit');
 const failed=checks.filter(x=>!x.ok);
 console.log(JSON.stringify({file,build,metrics:{directGoal,directAutoGoal,directPrimary,directCover,concludeCalls},checks,verdict:failed.length?'FAIL':'PASS'},null,2));
 if(failed.length) process.exit(1);

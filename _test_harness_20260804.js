@@ -933,6 +933,63 @@
     out.test39_手動投手返球=res;
   })();
 
+  // ===== test40: ライブ送球中は終了しない（OI-213系） =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.outs=0; S.preOuts=0; runners=[]; S.phase='throwing';
+      const f=fielders.find(x=>x.n==='遊');
+      ball={x:0,y:0,z:8,vx:80,vy:20,vz:4,landed:false};
+      throwPlay={stage:'fly',kind:'infield',target:1,thrower:f,receiver:f,t:3,fieldT:1,award:1,relayed:false};
+      const st=playLifecycleState();
+      const closed=requestPlayConclusion('test-live-ball');
+      res={liveBall:st.liveBall,canClose:st.canClose,closed,stillLive:!!throwPlay,
+        reason:throwPlay&&throwPlay.lifecycleReason,
+        verdict:(st.liveBall===true&&st.canClose===false&&closed===false&&!!throwPlay&&throwPlay.lifecycleReason==='live-ball')?'PASS':'FAIL'};
+      throwPlay=null;
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    out.test40_ライブ送球終了禁止=res;
+  })();
+
+  // ===== test41: 塁間は終了禁止、第三アウトだけ例外 =====
+  (function(){
+    const chk=[];
+    try{
+      newGame(); S.outs=0; S.preOuts=0;
+      const f=fielders.find(x=>x.n==='遊');
+      const r=makeRunner(1.5,2,1,25); r.obsDir=1; runners=[r];
+      ball={x:f.cx,y:f.cy,z:4.4,vx:0,vy:0,vz:0,landed:false};
+      throwPlay={stage:'transfer',kind:'infield',target:2,thrower:f,receiver:null,t:0,transfer:0.2,fieldT:1,award:1,relayed:false};
+      const mid=playLifecycleState();
+      chk.push({n:'塁間走者は終了不可',ok:mid.unsettled===true&&mid.canClose===false});
+      S.outs=3; S.preOuts=0;
+      const third=playLifecycleState();
+      chk.push({n:'第三アウトは終了可',ok:third.thirdOut===true&&third.canClose===true});
+      throwPlay=null; runners=[];
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    const bad=chk.filter(x=>!x.ok);
+    out.test41_PlayLifecycle門番={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test42: 終了拒否で空中送球の物理を凍結しない =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.outs=0; S.preOuts=0; runners=[]; S.phase='throwing';
+      const f=fielders.find(x=>x.n==='遊');
+      ball={x:0,y:0,z:8,vx:80,vy:20,vz:4,t:0,landed:false};
+      throwPlay={stage:'fly',kind:'infield',target:'P',thrower:f,receiver:f,t:2,fieldT:1,award:1,relayed:false,dest:[0,60.5],acc:0};
+      const before={x:ball.x,y:ball.y,z:ball.z};
+      const closed=requestPlayConclusion('test-fallthrough');
+      // request itself must reject; then one normal updateThrowPhase tick must move the live ball.
+      updateThrowPhase(1/60);
+      const moved=!!ball && Math.hypot(ball.x-before.x,ball.y-before.y,ball.z-before.z)>0.01;
+      res={closed,moved,stage:throwPlay&&throwPlay.stage,verdict:(closed===false&&moved)?'PASS':'FAIL'};
+      throwPlay=null;
+    }catch(e){res={verdict:'FAIL',e:e.message};}
+    out.test42_Lifecycle拒否後物理継続=res;
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
