@@ -15,7 +15,7 @@ function extract(name){
   }
   throw new Error('unterminated '+name);
 }
-const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','updateRunners','containmentBaseForTrailingRunner','chooseThrowTarget'];
+const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','updateRunners','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'];
 const ctx={console,Math,held:{},runners:[],fielders:[],ball:null,throwPlay:null,S:{outs:0,preOuts:0,phase:'flight'},
   clamp:(v,a,b)=>v<a?a:v>b?b:v,baseOuts:()=>0,isForced:()=>false,RUN_SPEED:1/90,ACC_T:1.9,
   runnerETA:()=>1.2,runnerBackETA:()=>0.1,throwETAof:()=>0.4};
@@ -44,4 +44,4 @@ ctx.setManualGoal(api,2.5,'S');
 assert(api.goal===2.5&&api.autoGoal===3&&api.cmd==='S'&&api.intentSource==='manual'&&api.intentSeq===seq0+1,'manual API contract');
 ctx.setRunnerIntent(api,1,{source:'result',force:true,updateAuto:true,cmd:null});
 assert(api.goal===1&&api.autoGoal===1&&api.cmd===null&&api.intentSource==='result'&&api.intentSeq===seq0+2,'rule/result API contract');
-console.log('targeted b0805-22 RunnerIntent PASS');
+console.log('targeted b0805-23 RunnerIntent PASS');

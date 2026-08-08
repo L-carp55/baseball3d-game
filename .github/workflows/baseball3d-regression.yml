@@ -10,7 +10,9 @@ name: Baseball3D regression
       - "_test_runner_intent_20260808.js"
       - "_test_fielding_assignment_20260808.js"
       - "_test_reach_model_20260808.js"
+      - "_test_defense_action_policy_20260809.js"
       - "_architecture_guard_20260808.js"
+      - "_ci_browser_regression_20260809.py"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
       - ".github/workflows/baseball3d-regression.yml"
   pull_request:
@@ -20,7 +22,9 @@ name: Baseball3D regression
       - "_test_runner_intent_20260808.js"
       - "_test_fielding_assignment_20260808.js"
       - "_test_reach_model_20260808.js"
+      - "_test_defense_action_policy_20260809.js"
       - "_architecture_guard_20260808.js"
+      - "_ci_browser_regression_20260809.py"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
       - ".github/workflows/baseball3d-regression.yml"
 
@@ -30,205 +34,30 @@ permissions:
 jobs:
   regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
-
-      - name: Static and architectural checks
+      - name: Static, architecture and focused contracts
         run: |
           python - <<'PY'
           from pathlib import Path
           src=Path('baseball3d.html').read_text(encoding='utf-8')
-          start=src.index('<script>')+len('<script>')
-          end=src.index('</script>',start)
-          Path('/tmp/baseball3d-main.js').write_text(src[start:end],encoding='utf-8')
+          a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          assert "const BUILD = 'b0805-23';" in src
           PY
+          python -m py_compile _ci_browser_regression_20260809.py
           node --check /tmp/baseball3d-main.js
           node --check _test_harness_20260804.js
           node --check _test_runner_intent_20260808.js
           node --check _test_fielding_assignment_20260808.js
           node --check _test_reach_model_20260808.js
+          node --check _test_defense_action_policy_20260809.js
           node --check _architecture_guard_20260808.js
           node _architecture_guard_20260808.js
           node _test_runner_intent_20260808.js
           node _test_fielding_assignment_20260808.js
           node _test_reach_model_20260808.js
-
-      - name: Build full-harness baseline and mutations
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-
-          harness=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
-          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
-          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
-          assert harness.count(marker)==1
-          harness=harness.replace(marker,exposed,1)
-          base=Path('baseball3d.html').read_text(encoding='utf-8')
-
-          def build(source,name):
-              prelude=(
-                  '<script>(()=>{let s=0x71D22228>>>0;Math.random=()=>{'
-                  's^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};})();'
-                  'window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";'
-              )
-              source=source.replace('<script>\n"use strict";',prelude,1)
-              source=source.replace('</body>',f'<script>\n{harness}\n</script>\n</body>',1)
-              Path('/tmp/'+name+'.html').write_text(source,encoding='utf-8')
-
-          build(base,'baseline')
-
-          old="      if(r.origin>=4 || !selected(r)) return;\n"
-          new="      if(r.origin>=4 || (r.origin!==0 && !selected(r))) return;\n"
-          assert base.count(old)==1
-          build(base.replace(old,new,1),'mut28')
-
-          old2="function runnerObservedDir(r){\n  return r.obsDir===1 ? 1 : (r.obsDir===-1 ? -1 : 0);\n}\n"
-          new2="function runnerObservedDir(r){\n  return r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);\n}\n"
-          assert base.count(old2)==1
-          build(base.replace(old2,new2,1),'mut29')
-
-          old3="  if(o.updateAuto!==false) r.autoGoal=goal;\n"
-          assert base.count(old3)==1
-          build(base.replace(old3,"  r.autoGoal=goal;\n",1),'mut30')
-
-          old4="    if(ex.has(f) || f.primary) return;\n    if(f.coverBase!=null && f.coverBase!==base) return;\n"
-          assert base.count(old4)==1
-          build(base.replace(old4,"    if(ex.has(f)) return;\n",1),'mut31')
-
-          old5="      if(handoff.changed) return false;\n"
-          assert base.count(old5)==1
-          build(base.replace(old5,'',1),'mut32')
-
-          assert base.count('const REACH_TURN_MAX=0.30;')==1
-          build(base.replace('const REACH_TURN_MAX=0.30;','const REACH_TURN_MAX=0;',1),'mut33')
-
-          assert base.count('const RETARGET_GAIN=0.12;')==1
-          build(base.replace('const RETARGET_GAIN=0.12;','const RETARGET_GAIN=0;',1),'mut35')
-
-          old7="  if(targetPassedByBall(f.tx,f.ty)) return true;\n"
-          assert base.count(old7)==1
-          build(base.replace(old7,'',1),'mut36')
-
-          old8="  if(o.manualTarget!=null) return {nb:o.manualTarget,source:'manual',locked:true};\n"
-          assert base.count(old8)==1
-          build(base.replace(old8,"  if(o.manualTarget!=null) return {nb:o.manualTarget==='P'?1:o.manualTarget,source:'manual',locked:true};\n",1),'mut37')
-
-          old9="  if(o.relayed || o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){\n"
-          assert base.count(old9)==1
-          build(base.replace(old9,"  if(o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){\n",1),'mut38')
-
-          old10="  if(throwPlay && throwPlay.stage==='transfer') setThrowTarget(throwPlay,t,'manual-live');\n"
-          assert base.count(old10)==1
-          build(base.replace(old10,"  if(throwPlay && throwPlay.stage==='transfer') throwPlay.target=(t==='P')?1:t;\n",1),'mut39')
-
-          live="  const liveBall=!!(stageLive && ball && (ball.z>0.8 || ballSpeed>3));\n"
-          assert base.count(live)==1
-          build(base.replace(live,"  const liveBall=false;\n",1),'mut40')
-
-          third="  const canClose=thirdOut || !(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n"
-          assert base.count(third)==1
-          build(base.replace(third,"  const canClose=!(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n",1),'mut41')
-
-          safe="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled){\n    /* 終了要求がlive-ball等で拒否された時はreturnしない。ここは物理更新より前なので、\n       returnすると同じ球位置・速度のまま毎フレーム再び拒否され、送球が永久に凍結する。 */\n    if(requestPlayConclusion('settled-return')) return;\n  }\n"
-          assert base.count(safe)==1
-          frozen="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled) return requestPlayConclusion('request');\n"
-          build(base.replace(safe,frozen,1),'mut42')
-
-          rundown_call="  const rundownExit=settleRundownExitIntent(T);\n"
-          assert base.count(rundown_call)==1
-          rundown_mutated=base.replace(rundown_call,"  const rundownExit=null;\n",1)
-          build(rundown_mutated,'mut43')
-
-          # Architecture mutations.
-          guard_old="    setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
-          guard_new="    r.goal=back; setRunnerIntent(r,back,{source:'rundown-timeout',force:true,updateAuto:true,cmd:null});\n"
-          assert base.count(guard_old)==1
-          Path('/tmp/guard-goal.html').write_text(base.replace(guard_old,guard_new,1),encoding='utf-8')
-
-          cover_anchor="          recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;\n"
-          cover_direct="          cut.coverBase=null; recv=cut; p=[cut.cx,cut.cy]; T.relayTo=T.target;\n"
-          assert base.count(cover_anchor)==1
-          Path('/tmp/guard-cover.html').write_text(base.replace(cover_anchor,cover_direct,1),encoding='utf-8')
-
-          reach_old="""    const t=reachTimeToPoint(f,p[0],p[1],{\n      useCurrent:true,reach:2,zeroWithinReach:true,speedScale:0.88,\n      reactionBase:F_REACT,reactScale:0.4,turn:true});\n"""
-          assert base.count(reach_old)==1
-          Path('/tmp/guard-reach.html').write_text(base.replace(reach_old,"    const t=runTime(f.sp*0.88,d);\n",1),encoding='utf-8')
-
-          retarget_old="      retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');\n"
-          assert base.count(retarget_old)==1
-          Path('/tmp/guard-retarget.html').write_text(base.replace(retarget_old,"      setTarget(prim,b2.x,b2.y);\n",1),encoding='utf-8')
-
-          throw_anchor="      if(T.kind==='pickoff'){\n"
-          assert base.count(throw_anchor)==1
-          Path('/tmp/guard-throw.html').write_text(base.replace(throw_anchor,"      T.target='P';\n"+throw_anchor,1),encoding='utf-8')
-          Path('/tmp/guard-lifecycle.html').write_text(base.replace(throw_anchor,"      concludePlay(false);\n"+throw_anchor,1),encoding='utf-8')
-          Path('/tmp/guard-rundown.html').write_text(rundown_mutated,encoding='utf-8')
-          PY
-
-      - name: Assert architecture mutations are rejected
-        run: |
-          for f in goal cover reach retarget throw lifecycle rundown; do
-            if node _architecture_guard_20260808.js "/tmp/guard-$f.html"; then
-              echo "$f architecture mutation escaped"
-              exit 1
-            fi
-          done
-
-      - name: Run browser harness
-        run: |
-          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
-          test -n "$CHROME"
-          for name in baseline mut28 mut29 mut30 mut31 mut32 mut33 mut35 mut36 mut37 mut38 mut39 mut40 mut41 mut42 mut43; do
-            timeout 240 "$CHROME" \
-              --headless=new --no-sandbox --disable-dev-shm-usage \
-              --use-gl=swiftshader --enable-unsafe-swiftshader \
-              --allow-file-access-from-files \
-              --dump-dom "file:///tmp/$name.html" \
-              > "/tmp/$name.dom" 2> "/tmp/$name.err" || {
-                cat "/tmp/$name.err"; exit 1
-              }
-          done
-
-      - name: Assert baseline and mutation detection
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import html,json,re,urllib.parse
-
-          def load(name):
-              dom=Path('/tmp/'+name+'.dom').read_text(encoding='utf-8',errors='replace')
-              match=re.search(r'data-harness="([^"]+)"',dom)
-              if not match: raise SystemExit(name+': data-harness missing')
-              return json.loads(urllib.parse.unquote(html.unescape(match.group(1))))
-
-          baseline=load('baseline')
-          bad={k:v for k,v in baseline.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
-          print(json.dumps({'baseline_count':len(baseline),'baseline_failed':bad},ensure_ascii=False,indent=2))
-          if len(baseline)!=45 or bad: raise SystemExit('baseline failed')
-
-          m={n:load('mut'+str(n)) for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43]}
-          checks=[
-            (m[28]['test28_個別走者選択'],'selection'),
-            (m[29]['test29_守備と走者意図の分離'],'intent'),
-            (m[30]['test30_RunnerIntent契約'],'RunnerIntent'),
-            (m[31]['test31_FieldingAssignment契約'],'FieldingAssignment'),
-            (m[32]['test32_壁反射担当交代'],'wall handoff'),
-            (m[33]['test33_ReachModel契約'],'ReachModel contract'),
-            (m[33]['test34_動的到達方向'],'ReachModel direction'),
-            (m[35]['test35_再照準採用'],'retarget gain'),
-            (m[36]['test36_通過済み目標'],'passed target'),
-            (m[38]['test37_ThrowDecision固定規則'],'relay lock'),
-            (m[39]['test39_手動投手返球'],'manual P'),
-            (m[40]['test40_ライブ送球終了禁止'],'live ball'),
-            (m[41]['test41_PlayLifecycle門番'],'third out'),
-            (m[43]['test43_挟殺終了goal清算'],'rundown exit'),
-          ]
-          if m[37]['test37_ThrowDecision固定規則'].get('verdict')!='FAIL' and m[37]['test39_手動投手返球'].get('verdict')!='FAIL':
-              raise SystemExit('manual priority mutation escaped')
-          for obj,label in checks:
-              if obj.get('verdict')!='FAIL': raise SystemExit(label+' mutation escaped')
-          if m[42]['test42_Lifecycle拒否後物理継続'].get('verdict')!='FAIL' and m[42]['sweep128'].get('verdict')!='FAIL':
-              raise SystemExit('frozen-live-throw mutation escaped')
-          print('all architecture and behavioral mutations detected')
-          PY
+          node _test_defense_action_policy_20260809.js
+      - name: Full browser baseline and behavioral mutations
+        run: python _ci_browser_regression_20260809.py

@@ -244,7 +244,7 @@
       lf.cx=fromX; lf.cy=fromY; lf.arm=armRaw; lf.run=run;
       fielders.forEach(f=>{ f.primary=(f===lf); });
       ball={x:lf.cx,y:lf.cy,z:4.6,t:0,vx:0,vy:0,vz:0,landed:true,maxZ:20};
-      runners=[{p:2.5,goal:4,autoGoal:4,origin:2,sp:24,v:20,dir:1,obsDir:1,cmd:'S',extra:0}];
+      runners=[{p:3.4,goal:4,autoGoal:4,origin:2,sp:24,v:20,dir:1,obsDir:1,cmd:'S',extra:0}];
       throwPlay={stage:'transfer', t:99, transfer:0.01, thrower:lf, kind:'outfield',
         award:0, target, relayed:true, fieldT:0, stepChecked:true};
       S.phase='throwing';
@@ -346,7 +346,7 @@
      ため、必ず throwPlay が立つまで進めてから時計を差し込む（最初の版はこれを怠り、
      時間切れ判定に一度も到達しないまま PASS を出す偽の試験になっていた）。 */
   (function(){
-    let scored=0, placed=0, trials=0, det=[];
+    let scored=0, placed=0, retired=0, trials=0, det=[];
     for(let k=0;k<8;k++){
       newGame(); S.outs=0; S.bases=[null,null,{id:1,sp:22}];
       startFlight({exit:78, la:-12, spray:-25, q:0.7}, 1, [0,2.5,1.4]);
@@ -365,11 +365,13 @@
         const rr=runners.find(x=>x.origin===3); if(rr&&!rr.out) rr.p=Math.min(rr.p,3.90); // 本塁へ届かせない
       }
       if(totalRuns()-before>0) scored++;
+      const rr=runners.find(x=>x.origin===3);
       if(S.bases[2]) placed++;
-      det.push({gained:totalRuns()-before, on3:!!S.bases[2]});
+      if(rr&&rr.out) retired++;
+      det.push({gained:totalRuns()-before, on3:!!S.bases[2], out:!!(rr&&rr.out)});
     }
-    out.test13_本塁未到達での得点={trials, 得点した回数:scored, 三塁へ置いた回数:placed,
-      verdict:(trials>0 && scored===0 && placed===trials)?'PASS':'FAIL', 内訳:det.slice(0,3)};
+    out.test13_本塁未到達での得点={trials, 得点した回数:scored, 三塁へ置いた回数:placed, アウトになった回数:retired,
+      verdict:(trials>0 && scored===0 && placed+retired===trials)?'PASS':'FAIL', 内訳:det.slice(0,3)};
   })();
 
   // ===== test14: 走者が塁間にいる間に時間切れで打ち切らないか（OI-060/073/080/144ほか）=====
@@ -906,8 +908,12 @@
       chk.push({n:'フライ帰塁先固定',ok:fly.nb===3&&fly.locked});
       const pick=decideThrowTarget(f,{kind:'pickoff',currentTarget:2});
       chk.push({n:'牽制は現在塁固定',ok:pick.nb===2&&pick.locked});
-      const relay=decideThrowTarget(f,{kind:'ground',currentTarget:4,relayed:true});
-      chk.push({n:'中継後は元送球先固定',ok:relay.nb===4&&relay.locked});
+      const oldChoose=window.chooseThrowTarget;
+      try{
+        window.chooseThrowTarget=()=>({nb:2,reason:'fixture-current-threat',margin:0.4,utility:1.2});
+        const relay=decideThrowTarget(f,{kind:'ground',currentTarget:4,relayed:true});
+        chk.push({n:'中継後は現在の脅威を再評価',ok:relay.nb===2&&!relay.locked&&relay.reason==='fixture-current-threat'});
+      }finally{window.chooseThrowTarget=oldChoose;}
     }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
     const bad=chk.filter(x=>!x.ok);
     out.test37_ThrowDecision固定規則={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
@@ -1025,6 +1031,91 @@
     }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
     const bad=chk.filter(x=>!x.ok);
     out.test43_挟殺終了goal清算={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+
+  // ===== test44: 守備送球は実在する現在脅威だけを比較する（録画010407/010506/010135） =====
+  (function(){
+    const chk=[];
+    const oldTE=window.throwETAof, oldRE=window.runnerETA, oldRB=window.runnerBackETA;
+    try{
+      newGame(); S.outs=0; S.preOuts=0;
+      const of=fielders.find(f=>f.n==='左'); of.cx=-140; of.cy=160;
+      const batter={origin:0,p:1.4,goal:2,autoGoal:2,obsDir:1,v:23,sp:23,out:false};
+      runners=[batter];
+      window.throwETAof=(f,b)=>b===2?0.7:0.9;
+      window.runnerETA=(r,b)=>b===2?1.0:2.0;
+      window.runnerBackETA=()=>0.1;
+      chk.push({n:'二塁へ走る打者を未来の三塁へ送らない',ok:chooseThrowTarget(of).nb===2});
+
+      const tag={origin:2,p:2.08,goal:3,autoGoal:3,obsDir:1,v:2,sp:23,out:false};
+      runners=[tag];
+      window.throwETAof=(f,b)=>b===3?0.8:2;
+      window.runnerETA=(r,b)=>b===3?1.0:9;
+      window.runnerBackETA=()=>0.05;
+      chk.push({n:'走り始めのタッチアップも直接三塁勝負',ok:chooseThrowTarget(of).nb===3});
+
+      const home={origin:2,p:3.4,goal:4,autoGoal:4,obsDir:1,v:23,sp:23,out:false};
+      const trail={origin:0,p:1.1,goal:2,autoGoal:2,obsDir:1,v:23,sp:23,out:false};
+      runners=[home,trail];
+      window.throwETAof=(f,b)=>b===4?1.10:(b===2?0.60:2);
+      window.runnerETA=(r,b)=>r===home&&b===4?1.15:(r===trail&&b===2?1.80:9);
+      chk.push({n:'五分の本塁勝負は確実な次塁返球より優先',ok:chooseThrowTarget(of).nb===4});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{window.throwETAof=oldTE;window.runnerETA=oldRE;window.runnerBackETA=oldRB;}
+    const bad=chk.filter(x=>!x.ok);
+    out.test44_現在脅威送球ポリシー={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test45: 少し待てば立って捕れる球にはジャンプ/飛び込みを選ばない =====
+  (function(){
+    const chk=[];
+    const oldStep=window.stepBall, oldReach=window.reachTimeToPoint;
+    try{
+      const f={cx:0,cy:0,sp:24,v:0,tx:0,ty:0};
+      let b={x:0,y:0,z:6.7,vx:0,vy:0,vz:-1,landed:false,canCatchAir:true};
+      chk.push({n:'立位到達高6.8ft内は通常捕球',ok:planCatchAction(f,b,0.4,7,{ground:false}).mode==='routine'});
+      window.stepBall=(q,dt)=>{q.x+=(q.vx||0)*dt;q.y+=(q.vy||0)*dt;q.z+=(q.vz||0)*dt;};
+      window.reachTimeToPoint=()=>0;
+      b={x:0,y:0,z:7.2,vx:0,vy:0,vz:-8,landed:false,canCatchAir:true};
+      chk.push({n:'直後に立って捕れる高球は待つ',ok:planCatchAction(f,b,0.4,7.5,{ground:false}).mode==='wait'});
+      b={x:0,y:0,z:7.2,vx:0,vy:0,vz:5,landed:false,canCatchAir:true};
+      chk.push({n:'待てない高球だけジャンプ',ok:planCatchAction(f,b,0.4,7.5,{ground:false}).mode==='jump'});
+      b={x:6,y:0,z:0,vx:-10,vy:0,vz:0,landed:true,canCatchAir:false};
+      chk.push({n:'直後に正面へ来るゴロはスライディングしない',ok:planCatchAction(f,b,6,7,{ground:true,gz:0}).mode==='wait'});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{window.stepBall=oldStep;window.reachTimeToPoint=oldReach;}
+    const bad=chk.filter(x=>!x.ok);
+    out.test45_捕球動作ポリシー={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test46: 挟殺は距離トリガーではなく追走/送球/他走者リスクを比較する =====
+  (function(){
+    const chk=[];
+    const oldTF=window.throwFlightTime, oldRT=window.reachTimeToPoint,
+          oldRE=window.runnerETA, oldRB=window.runnerBackETA, oldRisk=window.rundownOtherAdvanceRisk;
+    try{
+      const holder={cx:0,cy:0,sp:24,v:10,tx:10,ty:0,arm:0.8,fld:70,cat:70,run:0};
+      const recv={cx:0,cy:127.3};
+      const r={origin:1,p:1.7,goal:2,autoGoal:2,obsDir:1,v:18,sp:23,out:false};
+      const R={r,holder,lo:1,hi:2,loLim:1,hiLim:2}; runners=[r];
+      window.throwFlightTime=()=>0.40; window.runnerETA=()=>1.00; window.runnerBackETA=()=>1.00;
+      window.reachTimeToPoint=()=>0.50; window.rundownOtherAdvanceRisk=()=>0;
+      chk.push({n:'直接タッチが間に合うなら保持して追う',ok:planRundownAction(R,recv,2).kind==='chase'});
+
+      window.runnerETA=()=>0.70; window.reachTimeToPoint=()=>1.20;
+      chk.push({n:'タッチ不能で送球窓がある時だけ投げる',ok:planRundownAction(R,recv,2).kind==='throw'});
+
+      window.runnerETA=()=>2.00; window.reachTimeToPoint=()=>2.40;
+      chk.push({n:'早着しすぎて反転時間を与える送球は待つ',ok:planRundownAction(R,recv,2).kind==='chase'});
+
+      window.runnerETA=()=>0.65; window.reachTimeToPoint=()=>0.90; window.rundownOtherAdvanceRisk=()=>1.15;
+      chk.push({n:'他走者の進塁損失が大きい僅差送球は待つ',ok:planRundownAction(R,recv,2).kind==='chase'});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{window.throwFlightTime=oldTF;window.reachTimeToPoint=oldRT;window.runnerETA=oldRE;
+      window.runnerBackETA=oldRB;window.rundownOtherAdvanceRisk=oldRisk;}
+    const bad=chk.filter(x=>!x.ok);
+    out.test46_挟殺行動ポリシー={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
   console.log(JSON.stringify(out,null,1));
