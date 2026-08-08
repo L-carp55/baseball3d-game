@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-22';
+const BUILD = 'b0805-23';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -117,10 +117,14 @@ function recTick(dt){
     o:S.outs, b:S.balls, s:S.strikes, in:S.inning+(S.half?'裏':'表'),
     key:['s','z','x'].filter(k=>held[k]).join('')||'-',
     ball: ball?{x:r2(ball.x),y:r2(ball.y),z:r2(ball.z),
-      land:!!ball.landed, air:!!ball.canCatchAir, pri:ball.primary?ball.primary.n:null}:null,
+      land:!!ball.landed, air:!!ball.canCatchAir, pri:ball.primary?ball.primary.n:null,
+      cm:ball.catchMode||''}:null,
     thr: throwPlay?{st:throwPlay.stage, to:throwPlay.target,
       by:throwPlay.thrower?throwPlay.thrower.n:null, kind:throwPlay.kind,
       ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0,
+      dr:throwPlay.decisionReason||'', dm:r2(throwPlay.decisionMargin||0), du:r2(throwPlay.decisionUtility||0),
+      ra:throwPlay.rd?throwPlay.rd.actionReason||'':'', rm:throwPlay.rd?r2(throwPlay.rd.actionMargin||0):0,
+      rr:throwPlay.rd?r2(throwPlay.rd.actionRisk||0):0,
       ls:throwPlay.lifecycleSource||'legacy', lq:throwPlay.lifecycleSeq||0, lr:throwPlay.lifecycleReason||''}:null,
     run: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r2(r.p)}→${r2(r.goal)}${r.out?'X':''}${r.cmd||''}${r.mustReturn?'R':''}${r.tagUp?'T':''}`),
@@ -139,7 +143,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -1798,6 +1802,55 @@ function isForced(r){
    OI-247: 三塁走者が本塁まで0.4秒、右翼から本塁2.4秒の場面で、
    一塁到達済みの打者は dir=0 なので通常の live から消え、本塁だけが候補に残った。
    その場合は「今止まっている後続走者」も見て、一つ先の塁へ返して余計な進塁を防ぐ。 */
+/* ===== 守備行動ポリシー =====
+   送球・捕球・挟殺を「最初に実行可能になった行動」で即決しない。
+   各領域が候補を作り、成功見込み・失点/進塁価値・動作コストを同じ比較器へ渡す。
+   これにより、誰も向かっていない先の塁への送球、少し待てば立って捕れる球への
+   飛び込み、保持して追えばよい挟殺での早投げという同根の一手読みを防ぐ。 */
+function selectDefenseAction(actions){
+  const viable=(actions||[]).filter(a=>a && a.feasible!==false && Number.isFinite(a.utility));
+  if(!viable.length) return null;
+  viable.sort((a,b)=>(b.utility-a.utility)||((b.priority||0)-(a.priority||0))||((a.order||0)-(b.order||0)));
+  return viable[0];
+}
+/* 守備から見える「今まさに勝負が存在する塁」。未来に走るかもしれない先の塁は
+   候補にしない。実移動方向、打者走者の一塁義務、封殺義務だけを使う。 */
+function visibleRunnerThreat(r){
+  if(!r || r.out || r.p>=4-1e-9) return null;
+  const dir=runnerObservedDir(r);
+  if(dir<0 && Math.abs(r.p-Math.round(r.p))>0.02){
+    const base=Math.floor(r.p+1e-9);
+    return base>=1 ? {runner:r,base,dir:-1,forced:false} : null;
+  }
+  if(dir>0){
+    return {runner:r,base:Math.min(4,Math.floor(r.p+1e-9)+1),dir:1,
+      forced:(r.origin===0 || (r.origin>0&&isForced(r)))};
+  }
+  if(r.origin===0 && r.p<1-1e-9) return {runner:r,base:1,dir:1,forced:true};
+  if(r.origin>0 && isForced(r) && r.p<r.origin+1-1e-9)
+    return {runner:r,base:Math.min(4,r.origin+1),dir:1,forced:true};
+  return null;
+}
+function runnerThreatETA(threat){
+  return threat.dir<0
+    ? runnerBackETA({...threat.runner,goal:threat.base})
+    : runnerETA(threat.runner,threat.base);
+}
+function throwThreatValue(base){
+  return base===4?1.15:(base===3?0.35:(base===2?0.12:0));
+}
+function throwActionForThreat(f,threat,order){
+  const te=throwETAof(f,threat.base), re=runnerThreatETA(threat);
+  const margin=re-te-(threat.base===4?0.25:0.05);
+  const value=throwThreatValue(threat.base);
+  /* margin=0を五分、±約1.1秒でほぼ0/1になる連続評価。ホームはアウトに加え
+     失点阻止価値があるため、少しだけ成功率が低くても比較対象に残す。 */
+  const outProbability=clamp(0.50+0.45*margin,0.02,0.98);
+  const utility=outProbability*(1+value)+0.30*value+(threat.forced?0.05:0);
+  return {kind:'throw',nb:threat.base,runner:threat.runner,margin,utility,
+    outProbability,priority:threat.base,order:order||0,
+    reason:threat.dir<0?'return-threat':(threat.forced?'forced-threat':'advance-threat')};
+}
 function containmentBaseForTrailingRunner(){
   const trail=runners.filter(r=>!r.out && r.p<2.95)
     .sort((a,b)=>b.p-a.p)[0];
@@ -1806,129 +1859,60 @@ function containmentBaseForTrailingRunner(){
   return Math.min(3, Math.max(1, occupied+1));
 }
 function chooseThrowTarget(f){
-  const throwETA=b=>throwETAof(f,b);
-  /* 「今動いている走者」だけでなく「押し出されて必ず進む走者」も対象にする。
-     押し出しは守備からも見えている事実であり、走り出す一瞬前でも塁は狙える。
-     これが無いと、満塁で打った直後の一瞬に「誰も走っていない」と見えて、
-     本塁封殺を捨てて一塁や二塁へ投げてしまう。 */
-  const live=runners.filter(r=>!r.out && (
-    runnerObservedDir(r)>0 || (r.origin===0 && r.p<1) || (r.origin>0 && isForced(r) && r.p<r.origin+1)));
-  /* 塁間を戻っている走者も刺せる。戻り先の塁へ投げれば間に合う場面を、
-     「前へ走っていないから対象外」として見逃していた。 */
-  const back=runners.filter(r=>!r.out && runnerObservedDir(r)<0 && Math.abs(r.p-Math.round(r.p))>0.06);
-  let sure=null, lead=null, fallback=null;
-  for(const r of back){
-    const b=Math.floor(r.p+1e-9);
-    if(b<1) continue;
-    if(runnerBackETA({...r, goal:b}) > throwETAof(f,b)+0.05) return {nb:b};
+  const threats=runners.map(visibleRunnerThreat).filter(Boolean);
+  const actions=threats.map((t,i)=>throwActionForThreat(f,t,i));
+  const best=selectDefenseAction(actions);
+  const isOF=Math.hypot(f.cx,f.cy)>=158;
+  if(best && (!isOF || best.margin>=-0.75)){
+    return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason};
   }
-  for(const r of live){
-    /* その走者が今向かっている塁から先へ、順に「間に合うか」を見る。
-       走者が今どこにいるかではなく、送球が着く頃にどこにいるかで決めるのが要点。
-       外野から、まだ一塁に達していない打者走者を見て一塁へ投げると、
-       送球が着く頃には二塁を回っている＝完全な無駄になる。 */
-    /* 内野からは「その走者が今向かっている塁」だけを狙う。
-       その先まで見ると、一塁へ走っているだけの打者走者を二塁で刺そうとしたり、
-       三塁へ向かう走者を見て本塁へ投げたりする（実際にそうなっていた）。
-       外野からは送球に時間がかかるので、着く頃の位置＝1つ先まで見る。 */
-    /* 封じられていない走者は、投げた先へ着く前に元の塁へ戻れる。
-       戻れる走者を狙って投げると、その走者は戻って、打者走者は一塁でセーフになる
-       ＝誰もアウトにならない（1死二塁の内野ゴロで毎回三塁へ投げていた原因）。
-       狙ってよいのは「もう戻れないところまで来ている走者」だけ。
-       戻る時間より送球が早く着くなら、その走者は帰塁でも刺せる＝踏み切っている。 */
-    const forced = isForced(r) || r.origin===0;
-    if(!forced){
-      const homeB = Math.floor(r.p+1e-9);
-      /* 「踏み切っている」の判定は2通り。
-         (a) 全力で前へ走っている（向き＋速度、どちらも守備から見える）——
-             帰塁ETAだけで見ると、全力疾走中でも「まだ戻れる」と読んでしまい、
-             本塁勝負を捨てて1点を献上した（録画で確認）
-         (b) もう塁へ戻る時間がない */
-      const sprinting = runnerObservedDir(r)>0 && (r.v||0) > 0.6*(r.sp||24);
-      const committed = sprinting || (homeB>=1 &&
-        runnerBackETA({...r, goal:homeB}) > throwETAof(f,homeB) - 0.15);
-      if(!committed) continue;                    // 塁の近くで様子見の走者は狙わない
-    }
-    const nextB = Math.min(4, Math.floor(r.p+1e-9)+1);
-    const bMax = (Math.hypot(f.cx,f.cy) < 158) ? nextB : 4;
-    const leadR = runners.filter(x=>!x.out && x.p<4-1e-9).sort((a,b)=>b.p-a.p)[0];
-    for(let b=nextB; b<=bMax; b++){
-      const te=throwETA(b), re=runnerETA(r,b);
-      /* 「その先の塁」は、走者が実際にそこへ走るかを走者側と同じ物差し(safeReachのslack)で
-         判定してから勝負する。走らない塁へ投げても何も起きない。
-         以前は「余裕2秒以内なら勝負」という緩い門番で、二塁で止まる打者走者を
-         「三塁なら余裕1.65秒で刺せる」と誤読し、誰も向かっていない三塁へ投げていた
-         （録画183631: 二塁に投げれば打者を刺せた場面）。
-         走者が今まさに向かっている最初の塁(nextB)は必ず勝負の対象。 */
-      if(b>nextB){
-        const slack=(r===leadR)?0.55:1.35;
-        if(re >= te + slack) break;      // 走者は自重する＝その塁の勝負は存在しない
-      }
-      const m = re - te - ((b===4)?0.35:0.05);
-      if(m>0){                                    // ここなら刺せる
-        /* 候補は2種類ためる。
-           sure=一番確実にアウトにできる塁（余裕が最大） / lead=はっきり刺せる一番先の塁。
-           2アウトならどこでアウトにしても攻撃終了なので sure を採る。
-           それ以外は前の走者を止めたいので lead を優先するが、
-           lead に数えるのは余裕がはっきりある送球だけにする
-           （きわどい賭けで先の塁へ投げ、結局どこもアウトにならないのを防ぐ）。 */
-        if(!sure || m>sure.m) sure={nb:b, m};
-        if(m > (forced?0.05:0.30) && (!lead || b>lead.nb)) lead={nb:b, m};
-        break;
-      }
-      /* 刺せない塁の中では「一番惜しい塁」を控えにする。
-         先頭走者の行き先を機械的に選ぶと、満塁で明らかに間に合わない本塁へ投げてしまう。 */
-      if(!fallback || m>fallback.m) fallback={nb:b, m};
-      if(re > te-0.7) break;                      // これ以上先は論外
-    }
+  /* 外野から全ての直接勝負が大幅に手遅れなら、遅れて追い掛けず後続走者の
+     次塁を封じる。これは「実在するアウト候補」を評価した後だけ使う第二目的。 */
+  if(isOF){
+    const contain=containmentBaseForTrailingRunner();
+    if(contain!=null && (!best || contain!==best.nb))
+      return {nb:contain,margin:best?best.margin:-99,utility:best?best.utility:0,
+        reason:'containment'};
   }
-  const pick = (baseOuts()>=2) ? (sure||lead) : (lead||sure);
-  if(pick) return {nb:pick.nb};
-  if(fallback){
-    /* 本塁が完全に手遅れなら、その走者への後追い送球はしない。
-       後続走者が塁上で止まっていても、一つ先の塁へ返して追加進塁を防ぐ。
-       これにより OI-247 の「二塁へ返す判断→リリース時に本塁へ上書き」を防ぐ。 */
-    if(fallback.nb===4 && fallback.m < -0.60){
-      const contain=containmentBaseForTrailingRunner();
-      if(contain!=null) return {nb:contain};
-    }
-    /* どこにも勝負が無い時の送球先。走者が余裕で先に着く塁（0.6秒超の負け）へ後追いで
-       投げても意味がない（単打で打者到達済みの一塁へ207ft投げていた＝録画203729）。
-       1つ先の塁へ投げて、次の進塁を牽制する（実際の外野手の「先の塁へ返す」動き）。
-       ★外野手（本塁から158ft超）だけに適用する。内野ゴロの打者は一塁で止まるので、
-       内野手がこれをやると誰も向かっていない二塁へ投げる（録画210048=遊ゴロで二塁送球、
-       封殺テスト20/20→0/20の崩壊としても検出）。適用条件を持たない行動ルールを
-       全野手共通の判断関数に足したことが真因＝場面パッチには必ず適用条件を付ける。
-       内野手は負けていてもそのまま塁へ投げる＝駆け抜け・間一髪の絵として自然。 */
-    const isOF = Math.hypot(f.cx,f.cy) >= 158;
-    const nb = (isOF && fallback.m < -0.6) ? Math.min(4, fallback.nb+1) : fallback.nb;
-    return {nb};
-  }
-  return {nb:'P'};
+  if(best) return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason};
+  return {nb:'P',margin:0,utility:0,reason:'no-visible-threat'};
 }
-/* ThrowDecisionの唯一の入口。捕球時・リリース時・追加送球で別々に例外処理を
-   持つと、同じ可視状態でも送球先が後段で反転する。固定プレー・手動指定・通常自動判断を
-   ここで同じ優先順位にし、T.targetの変更元も記録する。 */
+/* ThrowDecisionの唯一の入口。捕球時・リリース時・追加送球を同じ可視状態評価へ通す。
+   盗塁・牽制・離塁アウトだけはルール上の固定先。中継後の保持者は、1〜2秒前の
+   元送球先を盲目的に継承せず、次の送球を放す直前に現在の脅威を再評価する。 */
 function decideThrowTarget(f,ctx){
   const o=ctx||{};
-  if(o.manualTarget!=null) return {nb:o.manualTarget,source:'manual',locked:true};
+  if(o.manualTarget!=null) return {nb:o.manualTarget,source:'manual',locked:true,
+    reason:'manual',margin:0,utility:99};
   if(o.kind==='fly' && o.flyLead!==undefined){
     const r=o.flyLead;
-    return {nb:r ? (r.mustReturn?r.origin:Math.min(4,r.origin+1)) : 'P',source:'fly-fixed',locked:true};
+    if(r&&r.mustReturn) return {nb:r.origin,source:'fly-return-fixed',locked:true,
+      reason:'retouch-appeal',margin:0,utility:99};
+    /* 捕球時点で既にタッチアップを選んでいた走者だけは初期候補を置く。
+       これは空中送球を固定する契約ではなく、リリース時に通常ポリシーで再評価される。 */
+    if(r) return {nb:Math.min(4,r.origin+1),source:'fly-tag-initial',locked:false,
+      reason:'tag-up-threat',margin:0,utility:1};
   }
-  if(o.relayed || o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){
-    return {nb:o.currentTarget!=null?o.currentTarget:'P',source:o.kind==='steal'?'steal-fixed':(o.kind==='pickoff'?'pickoff-fixed':'relay-fixed'),locked:true};
+  if(o.kind==='steal' || o.kind==='pickoff' || o.lockCurrent){
+    return {nb:o.currentTarget!=null?o.currentTarget:'P',
+      source:o.kind==='steal'?'steal-fixed':(o.kind==='pickoff'?'pickoff-fixed':'rule-fixed'),
+      locked:true,reason:'rule-fixed',margin:0,utility:99};
   }
-  let d=chooseThrowTarget(f)||{nb:'P'};
+  let d=chooseThrowTarget(f)||{nb:'P',reason:'no-visible-threat',margin:0,utility:0};
   let nb=d.nb==null?'P':d.nb, source='auto';
   if(o.homeIfAdvancing && nb==='P' && runners.some(r=>!r.out&&r.p>2&&r.p<3.97&&runnerObservedDir(r)>0)){
-    nb=4; source='auto-home-live';
+    nb=4; source='auto-home-live'; d={...d,reason:'home-live-fallback'};
   }
-  if(nb==='P' && o.fallbackTarget!=null){ nb=o.fallbackTarget; source='auto-fallback'; }
-  return {nb,source,locked:false};
+  if(nb==='P' && o.fallbackTarget!=null){ nb=o.fallbackTarget; source='auto-fallback'; d={...d,reason:'explicit-fallback'}; }
+  return {nb,source,locked:false,reason:d.reason||'auto',margin:d.margin||0,utility:d.utility||0};
 }
-function setThrowTarget(T,nb,source){
+function setThrowTarget(T,nb,source,meta){
   if(!T) return false;
+  if(meta){
+    T.decisionReason=meta.reason||'';
+    T.decisionMargin=Number.isFinite(meta.margin)?meta.margin:0;
+    T.decisionUtility=Number.isFinite(meta.utility)?meta.utility:0;
+  }
   if(T.target===nb){ if(source) T.decisionSource=source; return false; }
   T.target=nb;
   T.decisionSource=source||'decision'; T.decisionSeq=(T.decisionSeq||0)+1;
@@ -2020,6 +2004,7 @@ function beginThrowPhase(f, kind, award, flyLead){
               + (Math.random()<A.fumble(f.cat) ? rnd(0.55,1.15) : 0),
     thrower:f, kind, award,
     target:decision.nb, decisionSource:decision.source, decisionSeq:1,
+    decisionReason:decision.reason||'', decisionMargin:decision.margin||0, decisionUtility:decision.utility||0,
     relayed:false,
     fieldT: ball.t
   };
@@ -2178,7 +2163,7 @@ function updateThrowPhase(dt){
          送球先が投手に書き換わって塁に誰も入らず、走者が悠々と次の塁へ進んでいた。 */
       const releaseDecision=decideThrowTarget(T.thrower,{kind:T.kind,currentTarget:T.target,
         relayed:T.relayed,manualTarget:(!isPlayerBatting()?manualThrow:null)});
-      setThrowTarget(T,releaseDecision.nb,releaseDecision.source+'-release');
+      setThrowTarget(T,releaseDecision.nb,releaseDecision.source+'-release',releaseDecision);
       /* 自分が送球先の塁のすぐそばにいるなら投げない（自分で塁を踏む）。
          一塁手が誰もいない一塁へ投げる、といった不自然な動きを防ぐ。 */
       const tp=throwPoint(T.target);
@@ -2434,6 +2419,37 @@ function beginRundown(r, hi){
   r.extra=0; setAutoGoal(r, lo);            // まず戻ろうとする
   setMsg('挟まれた！','', '#ffc23d');
 }
+/* 挟殺の保持/追走/送球も距離トリガーで即決せず、短時間の代替行動を比較する。 */
+function rundownOtherAdvanceRisk(mainRunner,windowSec){
+  let risk=0;
+  runners.forEach(r=>{
+    if(r===mainRunner || r.out || runnerObservedDir(r)<=0 || r.p>=4-1e-9) return;
+    const base=Math.min(4,Math.floor(r.p+1e-9)+1), eta=runnerETA(r,base);
+    if(eta<windowSec+0.30) risk+=base===4?1.15:(base===3?0.45:0.25);
+  });
+  return risk;
+}
+function planRundownAction(R,recv,chasing){
+  const r=R.r, holder=R.holder, dir=runnerObservedDir(r), basePoint=throwPoint(chasing);
+  const runnerT=dir<0?runnerBackETA({...r,goal:chasing}):runnerETA(r,chasing);
+  const throwDist=Math.hypot(basePoint[0]-holder.cx,basePoint[1]-holder.cy);
+  const throwT=throwFlightTime(throwDist,armEff(holder))+0.12;
+  const ahead={...r,p:clamp(r.p+(dir>=0?0.09:-0.09),0,4)}, ap=runnerPos(ahead);
+  const tagT=reachTimeToPoint(holder,ap.x,ap.z,{useCurrent:true,reach:3,reaction:false,turn:true});
+  const throwMargin=runnerT-throwT, tagMargin=runnerT-tagT;
+  const recvGap=recv?Math.hypot(basePoint[0]-recv.cx,basePoint[1]-recv.cy):99;
+  const risk=rundownOtherAdvanceRisk(r,throwT);
+  const earlyPenalty=Math.max(0,throwMargin-0.55)*1.8;  // 早着しすぎる球は反転時間を与える
+  const actions=[
+    {kind:'chase',utility:1.15+clamp(tagMargin,-1,1)*0.7+(tagMargin>0.12?1.0:0),
+      priority:tagMargin>0.12?3:1,reason:tagMargin>0.12?'tag-window':'compress-lane',
+      margin:tagMargin,risk:0,feasible:true},
+    {kind:'throw',utility:1.35+clamp(throwMargin,0,0.9)*0.8-earlyPenalty-risk,
+      priority:2,reason:risk>0.4?'throw-despite-advance-risk':'throw-window',
+      margin:throwMargin,risk,feasible:!!recv&&recvGap<=12&&throwMargin>0.08}
+  ];
+  return selectDefenseAction(actions);
+}
 function updateRundown(dt){
   /* 走者と野手の移動は呼び出し元(updateThrowPhase)が既に1回行っている。
      ここで再度呼ぶと1フレームに2回動いてしまう（速度が2倍になる）ので呼ばない。 */
@@ -2460,60 +2476,43 @@ function updateRundown(dt){
        抽象的な「逃げ幅」だけでアウトを宣告していた。 */
     if(R.hiLim-R.loLim < 0.13 && Math.hypot(R.holder.cx-rp.x, R.holder.cy-rp.z) < 6.0){
       markOut(r,'tag'); return endRundown('タッチアウト！','#95a3b4'); }
-    /* 逃げ込み先に近づいたら、その方向の塁へ送球して切り返させる。
-       投げる距離を毎回わずかに変える。固定にしていたため切り返しの間合いが完全に読め、
-       走者が同じ動きで逃げ切れていた。実際の挟殺も、詰め方と投げる間合いは一定ではない。 */
-    if(R.trig===undefined) R.trig = 0.20;
-    if(Math.abs(r.p-r.goal) < R.trig){
-      R.trig = rnd(0.11, 0.30);              // 次の切り返しは別の間合いで
-      const goingHi = r.goal > (R.loLim+R.hiLim)/2;
-      const chasing = goingHi ? R.hi : R.lo;       // 走者が向かっている側
-      const recv=rundownCover(chasing, R.holder);
-      const p=throwPoint(chasing);
+    /* 毎tick、保持して詰める・直接タッチへ追う・切り返し送球を比較する。
+       「塁まで一定距離になったらランダムに投げる」旧R.trigは、まだ追えば刺せる場面でも
+       球を手放し、反対方向や別走者に進塁時間を与えていた。 */
+    const goingHi = runnerObservedDir(r)>=0;
+    const chasing = goingHi ? R.hi : R.lo;
+    const recv=rundownCover(chasing,R.holder);
+    const p=throwPoint(chasing);
+    const action=planRundownAction(R,recv,chasing);
+    R.actionReason=action?action.reason:'no-action';
+    R.actionMargin=action?action.margin:0;
+    R.actionRisk=action?action.risk:0;
+    if(!action || action.kind!=='throw'){
       if(!recv){
-        setTarget(R.holder,p[0],p[1]);
-        if(R.t>9) return timeoutRundown();
-        return;
+        const myGap=Math.hypot(p[0]-R.holder.cx,p[1]-R.holder.cy);
+        if(myGap<30) setTarget(R.holder,p[0],p[1]);
       }
-      /* 受け手が塁に入っていなければ投げない。投げると球が塁の上で止まり、
-         受け手が着くまで判定が出ない（見た目も結果もおかしくなる）。
-         受け手が着くまでは自分がその塁へ詰める。自分の方が先に着くならそのまま踏む。 */
-      const recvGap = Math.hypot(p[0]-recv.cx, p[1]-recv.cy);
-      const myGap   = Math.hypot(p[0]-R.holder.cx, p[1]-R.holder.cy);
-      if(recvGap > 12){          // 受け手が塁に入りかけていれば投げてよい
-        if(myGap <= recvGap) setTarget(R.holder, p[0], p[1]);   // 自分の方が近い＝踏みに行く
-    /* 時間切れでアウトにしない。決着がつかないまま長引いたら走者はセーフ。 */
-    if(R.t>9) return timeoutRundown();
-        return;                                                  // まだ投げない
-      }
-      R.ex++;
-      // 両側の野手が詰めてきて、走者の使える範囲が狭まる
-      R.loLim=Math.min(R.loLim+0.10, R.hiLim-0.05);
-      R.hiLim=Math.max(R.hiLim-0.10, R.loLim+0.05);
-      const away = clamp(goingHi ? R.loLim : R.hiLim, R.loLim, R.hiLim);
-      R.fumble = Math.random() < A.fumble(recv.cat)*2.2;
-      /* 乱れる時は実際にそれた所へ投げる。以前は「送球が乱れてセーフ」と出るのに
-         球はまっすぐ塁へ飛んでいたので、バグにしか見えなかった。 */
-      let dest=p;
-      if(R.fumble){
-        const o=throwOffset(R.holder, Math.hypot(p[0]-R.holder.cx,p[1]-R.holder.cy));
-        dest=[p[0]+o[0]*2.4, p[1]+o[1]*2.4];
-      }
-      launchThrow(R.holder.cx,R.holder.cy,dest[0],dest[1],armEff(R.holder));
-      setTarget(recv, p[0], p[1]);          // 切り返しの受け手はその塁へ入る
-      R.sub='relay'; R.recv=recv; R.dest=dest; R.rt=0;
-      /* 走者は急停止して逆走する。切り返しのたびに止まって加速し直すので、
-         そのぶん詰められる（挟殺で走者が追い込まれていくのはこのため）。
-         ただし速度を0にするのは実際に向きを変えた時だけ。Sで突っ込み続けている走者は
-         行き先が変わらない（手動指示はsetAutoGoalで上書きされない）ので、そのまま走らせる。
-         向きが変わっていないのに速度だけ毎回リセットしていたため、突っ込んだ走者が
-         本塁手前で這うように減速していた（録画170919で確認）。 */
-      r.extra=0;
-      const gBefore=r.goal;
-      setAutoGoal(r, away);
-      if(r.goal!==gBefore) r.v=0;
+      if(R.t>9) return timeoutRundown();
+      return;
     }
-    /* 時間切れでアウトにしない。決着がつかないまま長引いたら走者はセーフ。 */
+    R.ex++;
+    // 実際に切り返した時だけ、両側の野手が詰めたぶん逃げ幅を狭める
+    R.loLim=Math.min(R.loLim+0.10, R.hiLim-0.05);
+    R.hiLim=Math.max(R.hiLim-0.10, R.loLim+0.05);
+    const away = clamp(goingHi ? R.loLim : R.hiLim, R.loLim, R.hiLim);
+    R.fumble = Math.random() < A.fumble(recv.cat)*2.2;
+    let dest=p;
+    if(R.fumble){
+      const o=throwOffset(R.holder, Math.hypot(p[0]-R.holder.cx,p[1]-R.holder.cy));
+      dest=[p[0]+o[0]*2.4, p[1]+o[1]*2.4];
+    }
+    launchThrow(R.holder.cx,R.holder.cy,dest[0],dest[1],armEff(R.holder));
+    setTarget(recv,p[0],p[1]);
+    R.sub='relay'; R.recv=recv; R.dest=dest; R.rt=0;
+    r.extra=0;
+    const gBefore=r.goal;
+    setAutoGoal(r,away);
+    if(r.goal!==gBefore) r.v=0;
     if(R.t>9) return timeoutRundown();
     return;
   }
@@ -3106,6 +3105,43 @@ function classifyCaughtBall(b){
 /* 飛び込み量は横方向の不足だけで決める。高さは jump/reach が担当する。
    3D距離をそのまま dive 判定に使うと、真上の球でも「横に届かない」と誤解して
    下方向へ飛び込むポーズになっていた（OI-250）。 */
+const STANDING_CATCH_Z=6.8;
+/* 現在の派手な捕り方を採る前に、短い将来に立ったまま処理できる窓があるかを見る。
+   野手の到達はReachModel、球は本体と同じstepBallで予測するため、見た目専用の別物理にしない。 */
+function findRoutineCatchWindow(f,b,opt){
+  const o=opt||{}, ground=!!o.ground, horizon=o.horizon||(ground?0.30:0.45);
+  if(!ground && b.vz>=0) return null;              // 上昇中の速い球を待って見送らない
+  const q={...b}, dt=1/60;
+  for(let t=dt;t<=horizon+1e-9;t+=dt){
+    stepBall(q,dt);
+    if(q.z<=0.02) q.landed=true;
+    if(!ground && q.landed) break;
+    const gz=Math.max(0,q.z-4.2);
+    const routineHeight=ground ? (q.z<STANDING_CATCH_Z) : (q.z>1&&q.z<=STANDING_CATCH_Z);
+    if(!routineHeight) continue;
+    const eta=reachTimeToPoint(f,q.x,q.y,{useCurrent:true,reach:CATCH_R,
+      zeroWithinReach:true,reaction:false,turn:true});
+    if(eta<=t+0.04 && (!ground || Math.hypot(Math.hypot(q.x-f.cx,q.y-f.cy),gz)<=CATCH_R+0.25))
+      return {t,x:q.x,y:q.y,z:q.z};
+  }
+  return null;
+}
+function planCatchAction(f,b,d2,grabR,opt){
+  const o=opt||{}, ground=!!o.ground;
+  const dive=ground?groundDiveAmount(d2,o.gz||0,grabR):catchDiveAmount(d2,grabR);
+  const routineNow=d2<=CATCH_R && (ground || b.z<=STANDING_CATCH_Z);
+  const jumpNow=!ground && d2<=CATCH_R && b.z>STANDING_CATCH_Z;
+  const actions=[];
+  if(routineNow) actions.push({kind:'routine',mode:'routine',utility:4,priority:4,feasible:true});
+  if(jumpNow) actions.push({kind:'jump',mode:'jump',utility:2.1-0.08*(b.z-STANDING_CATCH_Z),priority:2,feasible:true});
+  if(dive>0.15) actions.push({kind:'dive',mode:'dive',dive,utility:1.45-0.35*dive,priority:1,feasible:true});
+  if(!routineNow){
+    const future=findRoutineCatchWindow(f,b,{ground});
+    if(future) actions.push({kind:'wait-routine',mode:'wait',future,
+      utility:3.35-0.55*future.t,priority:3,feasible:true});
+  }
+  return selectDefenseAction(actions) || {mode:dive>0.15?'dive':(jumpNow?'jump':'routine'),dive};
+}
 function catchDiveAmount(d2, grabR){
   return clamp((d2-CATCH_R)/Math.max(0.1, grabR-CATCH_R), 0, 1);
 }
@@ -3317,8 +3353,17 @@ function stepFlight(dt){
     return false;
   }
   if(inAir && d3<=grabR && (receding || d2<1.2)){
-    /* 飛び込みは横方向にグラブが届かない時だけ。高さ不足は jump/reach で処理する。 */
-    const dive01 = catchDiveAmount(d2, grabR);
+    const catchPlan=planCatchAction(prim,ball,d2,grabR,{ground:false});
+    if(catchPlan.mode==='wait'){
+      ball.catchMode='wait-routine';
+      retargetFielder(prim,catchPlan.future.x,catchPlan.future.y,'routine-catch-window');
+      ball.dPrev=d2;
+      return false;
+    }
+    /* 飛び込みは横方向の不足、ジャンプは立位到達高を超えた時だけ。
+       6.6ftで跳ぶ旧閾値は、同じコード内の立位到達高6.8ftと矛盾していた。 */
+    const dive01 = catchPlan.mode==='dive' ? (catchPlan.dive||catchDiveAmount(d2,grabR)) : 0;
+    ball.catchMode=catchPlan.mode;
     // 球の真上まで来ている時は「間に合ったか」の見積もりを使わない（上のゴロと同じ理由）
     const pRoute = (d3<=2.5) ? 1 : routeProb(prim,0.10,1.30,grabR);
     if(Math.random() >= pRoute*catchProb(prim, dive01)){
@@ -3333,8 +3378,8 @@ function stepFlight(dt){
     }
     ball.diveCatch = dive01>0.15;
     /* 捕り方の見た目を立てる（飛び込み or 跳び上がり）。高さはグラブ固定前に取る。 */
-    if(dive01>0.15){ prim.diveT=0.9; prim.diveAmt=dive01; }
-    else if(ball.z>6.6){ prim.jumpT=0.55; }
+    if(catchPlan.mode==='dive'){ prim.diveT=0.9; prim.diveAmt=dive01; }
+    else if(catchPlan.mode==='jump'){ prim.jumpT=0.55; }
     /* 捕った球はグラブの中＝速度を消して野手の手に固定する。
        消さないと、プレー確定後の物理継続(空中凍結対策)がそのまま飛ばし続け、
        「捕ったはずの球がすり抜けて後ろへ跳ねた」ように見える（録画211914）。 */
@@ -3381,7 +3426,14 @@ function stepFlight(dt){
     /* ゴロの飛び込みは横方向に本当に届かない時だけ。高さ(gz)を混ぜると、
        真正面の大きなバウンドでも「遠い」と誤認して不要なスライディングになる。 */
     const groundGrabR=CATCH_R+diveReach(prim)*0.5;
-    const groundDive=groundDiveAmount(d2,gz,groundGrabR);
+    const groundPlan=planCatchAction(prim,ball,d2,groundGrabR,{ground:true,gz});
+    if(groundPlan.mode==='wait'){
+      ball.catchMode='wait-routine-ground';
+      retargetFielder(prim,groundPlan.future.x,groundPlan.future.y,'routine-ground-window');
+      return false;
+    }
+    const groundDive=groundPlan.mode==='dive'?(groundPlan.dive||groundDiveAmount(d2,gz,groundGrabR)):0;
+    ball.catchMode=groundPlan.mode;
     if(groundDive>0){ prim.diveT=0.7; prim.diveAmt=groundDive; }
     const gsp=Math.hypot(ball.vx,ball.vy)/1.467;
     const pg=clamp(0.995 - 0.09*(1-(prim.cat||70)/100)
