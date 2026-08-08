@@ -53,12 +53,7 @@ jobs:
           third="  const canClose=thirdOut || !(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n"
           assert base.count(third)==1
           build(base.replace(third,"  const canClose=!(liveBall||keyHeld||unsettled||activeRundown||flyDecision);\n",1),'mut41')
-          safe="""  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled){
-    /* 終了要求がlive-ball等で拒否された時はreturnしない。ここは物理更新より前なので、
-       returnすると同じ球位置・速度のまま毎フレーム再び拒否され、送球が永久に凍結する。 */
-    if(requestPlayConclusion('settled-return')) return;
-  }
-"""
+          safe="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled){\n    /* 終了要求がlive-ball等で拒否された時はreturnしない。ここは物理更新より前なので、\n       returnすると同じ球位置・速度のまま毎フレーム再び拒否され、送球が永久に凍結する。 */\n    if(requestPlayConclusion('settled-return')) return;\n  }\n"
           assert base.count(safe)==1
           frozen="  if(T.target==='P' && T.stage!=='rundown' && !flyWait && !keyHeld && allSettled) return requestPlayConclusion('request');\n"
           build(base.replace(safe,frozen,1),'mut42')
