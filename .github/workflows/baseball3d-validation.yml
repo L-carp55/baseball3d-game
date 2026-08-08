@@ -20,7 +20,7 @@ permissions:
 jobs:
   validation:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -28,6 +28,7 @@ jobs:
         run: |
           node --check validation/run_recording_corpus_20260808.js
           node --check validation/run_1000_fielding_routes_20260808.js
+          node --check validation/run_50_games_20260808.js
           python - <<'PY'
           import json,hashlib
           p='validation/recording_scenarios_20260808.json'
@@ -52,8 +53,10 @@ jobs:
           corpus_js='window.__OWNER_RECORDING_CORPUS='+json.dumps(corpus,ensure_ascii=False,separators=(',',':'))+';'
           rec=Path('validation/run_recording_corpus_20260808.js').read_text(encoding='utf-8')
           route=Path('validation/run_1000_fielding_routes_20260808.js').read_text(encoding='utf-8')
+          game50=Path('validation/run_50_games_20260808.js').read_text(encoding='utf-8')
           Path('/tmp/recording.html').write_text(base.replace('</body>',f'<script>{corpus_js}</script><script>{rec}</script></body>',1),encoding='utf-8')
           Path('/tmp/route.html').write_text(base.replace('</body>',f'<script>{route}</script></body>',1),encoding='utf-8')
+          Path('/tmp/game50.html').write_text(base.replace('</body>',f'<script>{game50}</script></body>',1),encoding='utf-8')
           PY
 
       - name: Run owner recording scenarios
@@ -71,6 +74,13 @@ jobs:
             --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files \
             --dump-dom file:///tmp/route.html > /tmp/route.dom 2>/tmp/route.err || { cat /tmp/route.err; exit 1; }
 
+      - name: Run 50-game calibration
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          timeout 420 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage \
+            --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files \
+            --dump-dom file:///tmp/game50.html > /tmp/game50.dom 2>/tmp/game50.err || { cat /tmp/game50.err; exit 1; }
+
       - name: Assert validation results
         run: |
           python - <<'PY'
@@ -83,10 +93,11 @@ jobs:
               return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
           rec=read_attr('/tmp/recording.dom','data-recording-corpus')
           route=read_attr('/tmp/route.dom','data-route1000')
-          print('RECORDING_CORPUS')
-          print(json.dumps(rec,ensure_ascii=False,indent=2))
-          print('ROUTE_1000')
-          print(json.dumps(route,ensure_ascii=False,indent=2))
+          game=read_attr('/tmp/game50.dom','data-game50')
+          print('RECORDING_CORPUS'); print(json.dumps(rec,ensure_ascii=False,indent=2))
+          print('ROUTE_1000'); print(json.dumps(route,ensure_ascii=False,indent=2))
+          print('GAME_50'); print(json.dumps(game,ensure_ascii=False,indent=2))
           if rec.get('plays')!=138 or rec.get('verdict')!='PASS': raise SystemExit('recording corpus failed')
           if route.get('contacts')!=1000 or route.get('verdict')!='PASS': raise SystemExit('route1000 failed')
+          if game.get('games')!=50 or game.get('verdict')!='PASS': raise SystemExit('game50 calibration failed')
           PY
