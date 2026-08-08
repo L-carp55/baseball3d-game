@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-12';
+const BUILD = 'b0805-13';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -2873,6 +2873,13 @@ function classifyCaughtBall(b){
 function catchDiveAmount(d2, grabR){
   return clamp((d2-CATCH_R)/Math.max(0.1, grabR-CATCH_R), 0, 1);
 }
+/* ゴロの横っ跳び量。捕球可否は球の高さも見るが、身体を横へ投げ出す必要があるかは
+   水平方向の不足だけで決める。バウンドが高いだけで足元へスライディングする OI-243 を防ぐ。 */
+function groundDiveAmount(d2, gz, grabR){
+  if(d2<=CATCH_R) return 0;                  // 普通にグラブが届く横距離なら倒れ込まない
+  const stretch=d2/Math.max(0.1,grabR);
+  return stretch>0.75 ? clamp((stretch-0.75)*3,0.3,1) : 0;
+}
 /* 落下点へ先着し、ほぼ静止して真下に入れている通常のフライは、
    高い位置で毎回ジャンプせず胸～顔の高さまで待って捕る（OI-249）。
    横へまだ追っている／上昇中／ぎりぎりの球には適用しない。 */
@@ -3135,9 +3142,11 @@ function stepFlight(dt){
      抜けるかどうかは、そもそも届くかどうかで決まるべき。
      取り損ねはこの下の「後逸(fumble)」だけが担当する＝その場に落ちるので不自然に見えない。 */
   if(grounded && !prim.fumbled && ball.t<6.5){
-    /* ゴロも捕球圏の外縁で捕った時は横っ跳びの見た目を付ける */
-    const stretch = Math.hypot(d2,gz)/Math.max(0.1, CATCH_R+diveReach(prim)*0.5);
-    if(stretch>0.75){ prim.diveT=0.7; prim.diveAmt=clamp((stretch-0.75)*3,0.3,1); }
+    /* ゴロの飛び込みは横方向に本当に届かない時だけ。高さ(gz)を混ぜると、
+       真正面の大きなバウンドでも「遠い」と誤認して不要なスライディングになる。 */
+    const groundGrabR=CATCH_R+diveReach(prim)*0.5;
+    const groundDive=groundDiveAmount(d2,gz,groundGrabR);
+    if(groundDive>0){ prim.diveT=0.7; prim.diveAmt=groundDive; }
     const gsp=Math.hypot(ball.vx,ball.vy)/1.467;
     const pg=clamp(0.995 - 0.09*(1-(prim.cat||70)/100)
                    - clamp((gsp-40)/55,0,1)*0.11*(1.30-0.50*(prim.cat||70)/100), 0.60, 0.995);
@@ -3861,30 +3870,58 @@ function fielderPose(f){
    ①体が本塁側へ踏み出すこと ②体が横を向いてから正面へ回ること で決まる。
    その場に立ったまま腕だけ動かしていたので、不自然に見えていた。
    stride=本塁側へ出る量(ft) / turn=上体のひねり */
-function pitcherPose(){
-  let k=null;
-  if(anim.wind>=0 && S.phase==='windup') k = clamp(anim.wind/0.85,0,1)*0.55;
-  else if(S.phase==='pitch' && pitch) k = 0.55 + 0.45*clamp(pitch.t*2.4,0,1);
-  if(k===null) return null;
-  if(k<0.35){                                   // 振りかぶり（軸足に乗り、体を横に向けて足を上げる）
+/* 投球フォームの基準ポーズ。k=0 は始動、0.35=最大膝上げ、0.62=踏み出し足接地、
+   0.80=リリース、1=フォロースルー。投球の一般的な運動連鎖
+   （膝上げ→ストライド/足接地→コッキング→加速/リリース→減速）を時間軸に合わせる。 */
+function pitcherPoseK(k){
+  k=clamp(k,0,1);
+  if(k<0.35){
     const u=k/0.35;
-    /* 上げた足は膝を深くたたむ（棒のまま上げると人形になる）。グラブ側の肘も軽く曲げる */
     return {armL:0.5-1.5*u, armR:0.4-1.1*u, elbowL:0.4+0.5*u, elbowR:0.5+0.6*u,
             legL:-1.7*u, legR:0.15*u, kneeL:1.5*u, kneeR:0.15,
             lean:-0.12*u, crouch:0.12*u, turn:-0.55*u, stride:0};
   }
-  if(k<0.62){                                   // 踏み出し（前へ出ながら腕を後ろへ引く）
+  if(k<0.62){
     const u=(k-0.35)/0.27;
-    /* コッキング: 投げ腕の肘を90度以上にたたんで担ぐ（しなりの見た目の主役） */
     return {armL:-1.0+0.7*u, armR:-0.7-2.0*u, elbowL:0.9-0.4*u, elbowR:1.1+0.7*u,
             legL:-1.7+2.5*u, legR:0.15+0.40*u, kneeL:1.5-1.2*u, kneeR:0.15+0.25*u,
             lean:-0.12+0.42*u, crouch:0.12+0.30*u, turn:-0.55+0.45*u, stride:3.4*u};
   }
-  const u=clamp((k-0.62)/0.38,0,1);             // リリース〜フォロースルー（体を正面へ回し切る）
-  /* リリースで肘が伸び切り(1.8→0.1)、フォローで軽く戻る */
-  return {armL:-0.3+1.0*u, armR:-2.7+3.6*u, elbowL:0.5, elbowR:Math.max(0.1, 1.8-3.2*u),
+  const u=(k-0.62)/0.38;
+  return {armL:-0.3+1.0*u, armR:-2.7+3.6*u, elbowL:0.5, elbowR:Math.max(0.1,1.8-3.2*u),
           legL:0.8+0.4*u, legR:0.55-1.0*u, kneeL:0.3, kneeR:0.4+0.5*u,
           lean:0.30+0.30*u, crouch:0.42-0.16*u, turn:-0.10+0.55*u, stride:3.4+2.0*u};
+}
+function blendPitchPose(a,b,t){
+  const o={};
+  const keys=new Set([...Object.keys(a),...Object.keys(b)]);
+  keys.forEach(k=>o[k]=lerp(a[k]===undefined?0:a[k],b[k]===undefined?0:b[k],t));
+  return o;
+}
+const PITCH_RELEASE_K=0.80;
+function pitcherPose(){
+  /* launchPitch() へ切り替わった瞬間、球はすでに手を離れて pitchPos(0) から飛び始める。
+     旧実装はその時点の身体が k=0.55（まだストライド中）で、球だけ先に飛び、
+     その後に腕を振っていた。OI-245 の「人間と全然違う」見え方の構造的原因。 */
+  if(anim.wind>=0 && S.phase==='windup'){
+    const u=clamp(anim.wind/0.85,0,1);
+    return pitcherPoseK(PITCH_RELEASE_K*u);       // windup の終端をリリース姿勢へ合わせる
+  }
+  if(S.phase==='pitch' && pitch){
+    const e=clamp(pitch.t,0,1);
+    if(e<0.38){
+      const u=e/0.38;
+      return pitcherPoseK(PITCH_RELEASE_K+(1-PITCH_RELEASE_K)*u); // リリース直後の減速
+    }
+    /* ボールが飛んでいる間ずっと極端なフォロースルーで凍らず、上体を起こして守備へ備える。 */
+    const u=clamp((e-0.38)/0.50,0,1);
+    const follow=pitcherPoseK(1);
+    const settle={armL:0.38,armR:0.58,elbowL:0.55,elbowR:0.45,
+      legL:0.18,legR:-0.30,kneeL:0.20,kneeR:0.62,
+      lean:0.24,crouch:0.10,turn:0.18,stride:5.0};
+    return blendPitchPose(follow,settle,u);
+  }
+  return null;
 }
 /* 影は太陽の方向へ伸ばして落とす。真下に丸い円を置くと、
    どの選手も同じ位置に同じ形の影を持つことになり、貼り絵のように見える。
