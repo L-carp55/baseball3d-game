@@ -628,6 +628,55 @@
     out.test24_守備構え={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
+  // ===== test25: 二塁カバーは実際に割り当てられ塁へ到達する（OI-248精査） =====
+  (function(){
+    let res={};
+    try{
+      newGame(); S.outs=2; S.bases=[null,null,{id:1,sp:23}];
+      startFlight({exit:82,la:12,spray:25,q:0.8},1,[0,2.5,1.4]);
+      const c2=fielders.find(f=>f.coverBase===2), p=throwPoint(2);
+      if(c2){ for(let i=0;i<240;i++) moveFielders(1/60,true); }
+      const gap=c2?Math.hypot(c2.cx-p[0],c2.cy-p[1]):99;
+      const rf=fielders.find(f=>f.n==='右');
+      const recv=c2?coverOf(2,rf):null;
+      res={cover:c2&&c2.n,gap:+gap.toFixed(2),receiver:recv&&recv.n,
+        verdict:(c2&&gap<2&&recv===c2)?'PASS':'FAIL'};
+    }catch(e){ res={verdict:'FAIL',e:e.message}; }
+    out.test25_二塁カバー実体=res;
+  })();
+
+  // ===== test26: 高いバウンドだけで不要なスライディングをしない（OI-243） =====
+  (function(){
+    const chk=[];
+    try{
+      chk.push({n:'真正面の高バウンドは飛び込まない',ok:groundDiveAmount(4.0,2.0,5.75)===0});
+      chk.push({n:'通常グラブ圏内は飛び込まない',ok:groundDiveAmount(4.4,0.0,6.5)===0});
+      chk.push({n:'横に本当に遠い球は飛び込む',ok:groundDiveAmount(6.0,0.0,7.0)>0});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test26_ゴロ不要ダイブ={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test27: 投球動作とボールリリースの時系列（OI-245） =====
+  (function(){
+    const chk=[];
+    try{
+      newGame();
+      S.phase='windup'; anim.wind=0.85;
+      const releaseBefore=pitcherPose();
+      S.phase='pitch'; pitch={t:0};
+      const releaseAfter=pitcherPose();
+      chk.push({n:'投球開始時にはリリース姿勢',ok:releaseBefore.stride>4&&releaseBefore.elbowR<0.8});
+      chk.push({n:'球が離れる境界で姿勢が連続',ok:Math.abs(releaseBefore.stride-releaseAfter.stride)<0.05&&Math.abs(releaseBefore.armR-releaseAfter.armR)<0.05});
+      pitch.t=0.38; const follow=pitcherPose();
+      chk.push({n:'リリース後にフォロースルー',ok:follow.armR>0.5&&follow.lean>0.5});
+      pitch.t=0.88; const settle=pitcherPose();
+      chk.push({n:'球の飛行中に守備姿勢へ復帰',ok:settle.crouch<0.18&&settle.lean<0.36});
+    }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
+    const bad=chk.filter(x=>!x.ok);
+    out.test27_投球モーション時系列={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();
