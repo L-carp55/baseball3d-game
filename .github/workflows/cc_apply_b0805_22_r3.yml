@@ -1,0 +1,91 @@
+name: Apply b0805-22 manual runner priority r3
+
+"on":
+  push:
+    branches: ["agent/b0805-22-manual-runner-priority"]
+    paths: [".github/workflows/cc_apply_b0805_22_r3.yml"]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-22-manual-runner-priority
+      - name: Apply patch
+        run: |
+          python .cc_patch_b0805_22.py
+          python .cc_patch_guard_b0805_22.py
+          python .cc_patch_runner_test_b0805_22.py
+          git diff --check
+      - name: Static and architecture checks
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          s=Path('baseball3d.html').read_text(encoding='utf-8'); a=s.index('<script>')+8; b=s.index('</script>',a)
+          Path('/tmp/main.js').write_text(s[a:b],encoding='utf-8')
+          assert "const BUILD = 'b0805-22';" in s
+          assert "if(tagPhase && (go||back)){" in s
+          PY
+          node --check /tmp/main.js
+          node --check _test_harness_20260804.js
+          node --check _test_runner_intent_20260808.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+      - name: Build baseline and S/X regressions
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          h=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          marker="  console.log(JSON.stringify(out,null,1));\n  return out;"
+          exposed="  const __j=JSON.stringify(out); document.body.setAttribute('data-harness',encodeURIComponent(__j));\n  console.log(JSON.stringify(out,null,1));\n  return out;"
+          assert h.count(marker)==1; h=h.replace(marker,exposed,1)
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          prelude=("<script>(()=>{let s=0x71D22228>>>0;Math.random=()=>{s^=s<<13;s^=s>>>17;s^=s<<5;return(s>>>0)/4294967296;};})();window.requestAnimationFrame=()=>0;</script>\n<script>\n\"use strict\";")
+          def build(src,name):
+              src=src.replace('<script>\n"use strict";',prelude,1)
+              src=src.replace('</body>',f'<script>\n{h}\n</script>\n</body>',1)
+              Path('/tmp/'+name+'.html').write_text(src,encoding='utf-8')
+          build(base,'baseline')
+          sline="        setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');\n        r.tagUp=false;\n"
+          assert base.count(sline)==1
+          build(base.replace(sline,"        setAutoGoal(r,r.origin<3?r.origin+0.45:r.origin,true);\n        r.tagUp=true;\n",1),'mut44s')
+          xline="        const backBase=r.origin>0 ? r.origin : Math.max(1,Math.floor(r.p+1e-9));\n        setManualGoal(r,backBase,'X');\n"
+          assert base.count(xline)==1
+          build(base.replace(xline,"        const backBase=r.origin>0 ? Math.min(4,r.origin+1) : Math.max(1,Math.floor(r.p+1e-9));\n        setManualGoal(r,backBase,'X');\n",1),'mut44x')
+          PY
+      - name: Run browser checks
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          test -n "$CHROME"
+          for n in baseline mut44s mut44x; do
+            timeout 300 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom "file:///tmp/$n.html" > "/tmp/$n.dom" 2> "/tmp/$n.err" || { cat "/tmp/$n.err"; exit 1; }
+          done
+      - name: Assert browser results
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse
+          def load(n):
+              s=Path('/tmp/'+n+'.dom').read_text(encoding='utf-8',errors='replace');m=re.search(r'data-harness="([^"]+)"',s)
+              if not m: raise SystemExit(n+': harness missing')
+              return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          b=load('baseline'); bad={k:v for k,v in b.items() if isinstance(v,dict) and v.get('verdict')!='PASS'}
+          print(json.dumps({'baseline_count':len(b),'failed':bad},ensure_ascii=False,indent=2))
+          if len(b)!=46 or bad: raise SystemExit('baseline failed')
+          for n in ['mut44s','mut44x']:
+              m=load(n); print(n,m['test44_高フライ手動走塁優先'])
+              if m['test44_高フライ手動走塁優先'].get('verdict')!='FAIL': raise SystemExit(n+' escaped')
+          PY
+      - name: Commit implementation
+        run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseball3d.html _test_harness_20260804.js _architecture_guard_20260808.js _test_runner_intent_20260808.js ARCHITECTURE_REMEDIATION_20260808.md
+          git diff --cached --check
+          git commit -m "fix: prioritize manual runner commands on high flies"
+          git push origin HEAD:agent/b0805-22-manual-runner-priority
