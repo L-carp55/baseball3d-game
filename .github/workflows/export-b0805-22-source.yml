@@ -1,0 +1,24 @@
+name: Export b0805-22 source
+
+"on":
+  push:
+    branches:
+      - "agent/export-b0805-22-source"
+    paths:
+      - ".github/workflows/export-b0805-22-source.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package source
+        run: tar --exclude=.git -czf /tmp/baseball3d-b0805-22-source.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseball3d-b0805-22-source
+          path: /tmp/baseball3d-b0805-22-source.tgz
+          retention-days: 1
