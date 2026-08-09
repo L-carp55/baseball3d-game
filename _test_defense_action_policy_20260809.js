@@ -12,14 +12,15 @@ function extract(name){
     if(c==='{')d++;else if(c==='}'&&--d===0)return js.slice(start,i+1);}
   throw new Error('unterminated '+name);
 }
-const ctx={console,Math,Number,CATCH_R:4.5,STANDING_CATCH_Z:6.8,runners:[],
+const ctx={console,Math,Number,CATCH_R:4.5,STANDING_CATCH_Z:6.8,runners:[],fielders:[],S:{outs:0},ball:null,
+  A:{transfer:()=>0.25},coverArrival:()=>0,
   clamp:(v,a,b)=>v<a?a:v>b?b:v,runnerObservedDir:r=>r.obsDir||0,isForced:r=>!!r.forced,
   throwETAof:()=>1,runnerETA:()=>1,runnerBackETA:()=>1,
   stepBall:(q,dt)=>{q.x+=(q.vx||0)*dt;q.y+=(q.vy||0)*dt;q.z+=(q.vz||0)*dt;},
   reachTimeToPoint:()=>0,throwPoint:b=>b===2?[63.6,63.6]:[0,0],throwFlightTime:()=>0.4,
   armEff:()=>0.8,runnerPos:r=>({x:(r.p||0)*10,z:0})};
 vm.createContext(ctx);
-for(const n of ['selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','throwActionForThreat',
+for(const n of ['selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','doublePlayContinuation','throwActionForThreat',
   'containmentBaseForTrailingRunner','chooseThrowTarget','decideThrowTarget','catchDiveAmount','groundDiveAmount',
   'findRoutineCatchWindow','planCatchAction','rundownOtherAdvanceRisk','planRundownAction'])
   vm.runInContext(extract(n),ctx,{filename:n+'.js'});

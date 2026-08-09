@@ -15,7 +15,7 @@ function extract(name){
   }
   throw new Error('unterminated '+name);
 }
-const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','runnerClosePlayAtBase','desiredRunnerSlide','updateRunnerSlide','updateRunners','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'];
+const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','runnerClosePlayAtBase','desiredRunnerSlide','updateRunnerSlide','updateRunners','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','doublePlayContinuation','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'];
 const ctx={console,Math,held:{},runners:[],fielders:[],ball:null,throwPlay:null,S:{outs:0,preOuts:0,phase:'flight'},
   clamp:(v,a,b)=>v<a?a:v>b?b:v,baseOuts:()=>0,isForced:()=>false,RUN_SPEED:1/90,ACC_T:1.9,
   runnerETA:()=>1.2,runnerBackETA:()=>0.1,throwETAof:()=>0.4};
