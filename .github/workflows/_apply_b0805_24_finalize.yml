@@ -1,0 +1,64 @@
+name: Finalize b0805-24 verified patch
+
+on:
+  push:
+    branches:
+      - "agent/b0805-24-batted-ball-rundown-integrity"
+    paths:
+      - ".github/workflows/_apply_b0805_24_finalize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-24-batted-ball-rundown-integrity
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
+        run: |
+          files=$(printf '%s\n' .b0805_24_gz.* | sort -V)
+          test -n "$files"
+          cat $files | tr -d '\r\n' | base64 -d > /tmp/b0805-24.patch.gz
+          gzip -t /tmp/b0805-24.patch.gz
+          gzip -dc /tmp/b0805-24.patch.gz > /tmp/b0805-24.patch
+          head -c 11 /tmp/b0805-24.patch | grep -F 'diff --git '
+          sha256sum /tmp/b0805-24.patch.gz /tmp/b0805-24.patch
+          git apply --check /tmp/b0805-24.patch
+
+      - name: Apply and validate source
+        run: |
+          git apply /tmp/b0805-24.patch
+          grep -F "const BUILD = 'b0805-24';" baseball3d.html
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>')
+          b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          for f in _test_harness_20260804.js _test_runner_intent_20260808.js _test_fielding_assignment_20260808.js _test_reach_model_20260808.js _test_defense_action_policy_20260809.js _test_batted_ball_integrity_20260809.js _architecture_guard_20260808.js; do
+            test ! -f "$f" || node --check "$f"
+          done
+          test ! -f _test_batted_ball_integrity_20260809.js || node _test_batted_ball_integrity_20260809.js
+          node _architecture_guard_20260808.js
+          python -m py_compile _ci_browser_regression_20260809.py
+          python _ci_browser_regression_20260809.py
+
+      - name: Squash to one clean commit and push
+        run: |
+          rm -f .b0805_24_payload.* .b0805_24_gz.* .b0805_24_apply.py .b0805_24_*.py
+          rm -f .github/workflows/_temp_export_b0805_24.yml .github/workflows/_apply_b0805_24_finalize.yml
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --soft a6ed22b0da133c00c9120261d7d45847cd37562b
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve batted-ball identity and live-play integrity"
+          git push --force origin HEAD:agent/b0805-24-batted-ball-rundown-integrity
