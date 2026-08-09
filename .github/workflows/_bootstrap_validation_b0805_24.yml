@@ -1,0 +1,32 @@
+name: Bootstrap b0805-24 validation assets
+
+on:
+  push:
+    branches:
+      - "agent/validation-b0805-24"
+    paths:
+      - ".github/workflows/_bootstrap_validation_b0805_24.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/validation-b0805-24
+          fetch-depth: 0
+      - name: Copy unchanged validation corpus and runners
+        run: |
+          git fetch origin agent/validation-b0805-23
+          git checkout origin/agent/validation-b0805-23 -- validation .github/workflows/baseball3d-validation.yml
+          sed -i 's/agent\/validation-b0805-23/agent\/validation-b0805-24/g' .github/workflows/baseball3d-validation.yml
+          rm -f .github/workflows/_bootstrap_validation_b0805_24.yml
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "validation: run b0805-24 against unchanged corpus"
+          git push origin HEAD:agent/validation-b0805-24
