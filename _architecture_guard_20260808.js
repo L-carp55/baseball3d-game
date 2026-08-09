@@ -71,6 +71,9 @@ for(const name of ['applyRunnerKeys','updateStealCommands']){
 const manualCalls=count(/\bsetManualGoal\s*\(/g,clean)-1; // subtract definition
 check('manual runner decisions use API',manualCalls>=3,manualCalls);
 check('runner intent is recorded',/\bintent\s*:\s*runners\.filter/.test(script),'intent field');
+check('manual runner intent survives one-base command consumption',
+  /manualIntentLocked/.test(intentBody)&&/r\.cmd\|\|r\.manualIntentLocked/.test(intentBody),
+  'play-scoped manual lock');
 
 for(const name of ['runnerObservedDir','containmentBaseForTrailingRunner','chooseThrowTarget','judgeAtBase']){
   const body=stripComments(extractFunction(name));
@@ -89,6 +92,15 @@ check('high-fly manual S/X uses shared selection and manual intent',
   manualTagPos>=0 && genericBackPos>manualTagPos &&
   /!selected\(r\)/.test(keysBody) && count(/setManualGoal\s*\(/g,keysBody)>=4,
   {manualTagPos,genericBackPos,manualCallsInKeys:count(/setManualGoal\s*\(/g,keysBody)});
+check('runner controls expose all/lead/trail advance-return pairs',
+  /held\['a'\]/.test(keysBody)&&/held\['c'\]/.test(keysBody)&&/held\['d'\]/.test(keysBody)&&
+  /advanceTrail/.test(keysBody)&&/returnTrail/.test(keysBody),
+  'S/X all, Z/A lead, C/D trail');
+const slideBody=stripComments(extractFunction('updateRunnerSlide'));
+check('runner sliding is centralized and rendered',
+  /desiredRunnerSlide\s*\(/.test(slideBody)&&/runnerSlidePose\s*\(r\)/.test(script)&&
+  /slideMode/.test(script)&&/slideBase/.test(script),
+  'slide policy + pose + recording');
 
 const runTimeUses=count(/\brunTime\s*\(/g,clean);
 check('runTime is only defined and used inside reachTravelTime',runTimeUses===2,runTimeUses);
