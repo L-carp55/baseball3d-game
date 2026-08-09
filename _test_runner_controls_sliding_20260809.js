@@ -73,4 +73,4 @@ ctx.throwPlay={target:4,stage:'catch',kind:'outfield',decisionMargin:0.2};r=ctx.
 ctx.throwPlay={target:2,stage:'fly',kind:'pickoff',decisionMargin:0.1};r=ctx.makeRunner(2.12,2,2,24);r.mustReturn=true;ctx.updateRunnerSlide(r,0);assert(r.slideMode==='head','no headfirst return slide');
 ctx.throwPlay={target:1,stage:'transfer',kind:'infield',decisionMargin:1.2};r=ctx.makeRunner(0.9,1,0,24);ctx.updateRunnerSlide(r,0);assert(r.slideT===0,'routine first-base arrival slid');
 
-console.log('targeted b0805-25 runner controls/sliding PASS');
+console.log('targeted b0805-26 runner controls/sliding PASS');

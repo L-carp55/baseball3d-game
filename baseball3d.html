@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-25';
+const BUILD = 'b0805-26';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -145,7 +145,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.bt=打球時に固定した種別 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -2047,6 +2047,8 @@ function beginThrowPhase(f, kind, award, flyLead){
        表示時にその時点のボール保持者(thrower)を使うと、返球を経た後に
        「右フライ」が「投フライ」に化ける（録画で確認）。 */
     flyBy: kind==='fly' ? f.n : null,
+    battedBy:(ball&&ball.battedBy)||f.n,
+    battedType:(ball&&ball.battedType)||(kind==='fly'?'フライ':'ゴロ'),
     stage:'transfer', t:0,
     /* 持ち替え時間 = 守備力（捕ってから投げるまでの動作の速さ）＋捕球（握り直しの確実さ）。
        捕球が低いと一定確率で捕り損ね、さらに時間がかかる。 */
@@ -2838,7 +2840,9 @@ function markOut(r, kind){
 const baseOuts = ()=> S.outs-(S.preOuts||0);   // このプレーが始まる前のアウト数
 /* フライ捕球後に別のアウトが続いた時も、元の打球種別と捕球野手を保持する。 */
 function flyOutLabel(T,nm){
-  return `${T.flyBy||nm}${(ball&&ball.flyKind)||'フライ'} アウト`;
+  const who=T.flyBy||T.battedBy||nm;
+  const kind=T.battedType||(ball&&ball.battedType)||(ball&&ball.flyKind)||'フライ';
+  return `${who}${kind} アウト`;
 }
 /* プレー終了の正本。終了要求側がそれぞれ独自に「もう終わった」と判断すると、
    塁間・送球中・操作中・挟殺中を別々の経路が見落とす。ここでは見えているプレー状態を
@@ -2977,6 +2981,8 @@ function concludePlay(force){
   const brr = runners.find(r=>r.origin===0);
   const brBase = brr ? (brr.out ? Math.max(1,Math.floor(brr.p+1e-9)) : Math.round(brr.goal)) : 1;
   const HITNAME = {1:'ヒット',2:'ツーベース',3:'スリーベース',4:'ランニングホームラン'};
+  const battedBy=throwPlay.battedBy||throwPlay.flyBy||nm;
+  const battedType=throwPlay.battedType||(ball&&ball.battedType)||(throwPlay.kind==='fly'?'フライ':'ゴロ');
   let text, color;
   if(throwPlay.rdText){                      // 挟殺プレーの結末を優先して見せる
     /* 元がフライなら、後続走者をタッチアウトにしても打球種別をゴロへ作り直さない。
@@ -2984,14 +2990,13 @@ function concludePlay(force){
     const base = throwPlay.kind==='fly' ? flyOutLabel(throwPlay,nm)
       : (throwPlay.kind==='outfield' ? (HITNAME[brBase]||'ヒット')
       : (throwPlay.kind==='steal' ? '盗塁'
-      : (throwPlay.kind==='pickoff' ? '牽制' : `${nm}ゴロ`)));
+      : (throwPlay.kind==='pickoff' ? '牽制' : `${battedBy}${battedType}`)));
     text = `${base} → ${throwPlay.rdText}`;
     color = throwPlay.rdColor;
   }else{
     if(throwPlay.kind==='fly'){
-      const fk=(ball&&ball.flyKind)||'フライ';
-      // 表示は「捕った野手」で作る（thrower は返球で投手などに変わっている）
-      text=`${throwPlay.flyBy||nm}${fk} アウト`;
+      // 表示は「捕った野手」と打球時に固定した種別で作る。
+      text=`${throwPlay.flyBy||battedBy}${battedType} アウト`;
       if(throwPlay.flyText) text+=` → ${throwPlay.flyText}`;
       else if(runs>0) text='犠牲フライ！';
       color='#95a3b4';
@@ -3001,8 +3006,8 @@ function concludePlay(force){
       if(outs>0) text += ` → ${outs>1?outs+'アウト':'アウト'}`;   // 走者が刺された時は隠さない
     }
     else if(outs>=2) text='ゲッツー！ ダブルプレー';
-    else if(outs===1) text=`${nm}ゴロ アウト`;
-    else text=`${nm}への内野安打！`;
+    else if(outs===1) text=`${battedBy}${battedType} アウト`;
+    else text=`${battedBy}への内野安打！`;
     if(color===undefined) color = outs>0 ? '#95a3b4' : (runs>0?'#5aa9ff':'#3fd66a');
   }
   if(runs>0) text += ` ${runs}点`;
@@ -3047,6 +3052,20 @@ function updateThrow(dt){
   ball.x=last.b[0]; ball.y=last.b[1]; ball.z=4.0;
 }
 
+/* 打球種別は打った瞬間の物理から決め、守備がノーバウンドで捕れるかとは分離する。
+   canCatchAir=false は「捕れない」だけであり、ライナーをゴロへ変える理由ではない。 */
+function classifyBattedBallAtContact(c){
+  const la=Number(c&&c.la)||0;
+  if(la<4) return 'ゴロ';
+  if(la<=20) return 'ライナー';
+  if(la>45) return 'ポップフライ';
+  return 'フライ';
+}
+function battedBallPlayLabel(T,nm){
+  const who=(T&&T.battedBy)||nm||'';
+  const kind=(T&&T.battedType)||(ball&&ball.battedType)||'ゴロ';
+  return `${who}${kind}`;
+}
 function startFlight(c, powerMul, from){
   S.errorBy=null; S.playClock=0; S.throwCount=0;   // このプレーの記録をやり直す
   recStart(`打球 ${Math.round(c.exit)}mph ${Math.round(c.la)}° 方向${Math.round(c.spray)}° / ${S.outs}死 塁${S.bases.map(b=>b?1:0).join('')}`);
@@ -3059,9 +3078,11 @@ function startFlight(c, powerMul, from){
        （引っ張りのファウルボールが曲がって出ていくのはこれ）。 */
     bs: clamp((c.la+6)/30, -0.4, 1.1),
     ss: clamp(-c.spray/38, -1.2, 1.2),
-    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false };
+    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false,
+    battedType:classifyBattedBallAtContact(c), battedBy:null };
   const plan=planPlay(ball);
   ball.pred=plan.firstLand; ball.canCatchAir=plan.air; ball.planT=plan.t;
+  ball.battedBy=plan.f?plan.f.n:null;
   clearAllCoverRoles('batted-ball-reset');
   setPrimaryFielder(plan.f,'batted-ball',[plan.x,plan.y]);
   window.__contactGo=!plan.air;      // 空中で捕られない打球＝押し出される走者は打った瞬間に走る
@@ -3524,7 +3545,9 @@ function resolveCatch(){
   const dist=Math.hypot(ball.x,ball.y);
   /* 空中で捕った打球は、弾道が低くてもゴロではない。分類を一つの関数へ集約し、
      後続の送球・挟殺表示でも ball.flyKind をそのまま使う。 */
-  const kind = classifyCaughtBall(ball);
+  const kind = (!ball.landed && ball.battedType==='ゴロ')
+    ? 'ライナー' : (ball.battedType||classifyCaughtBall(ball));
+  ball.battedType=kind;
   const batter=runners.find(r=>r.origin===0);
   if(batter) markOut(batter,'fly');      // 捕った瞬間にアウトカウントを増やす
 
@@ -3574,7 +3597,8 @@ function resolveHit(ftime, fpos, entitled){
         else { nb[i+1]=S.bases[i]; moves.push({from:i+1,to:i+2}); }
       }
       return {out:1, runs, bases:nb, hit:false, moves, throwTo:1,
-        text: runs>0?`${ball.primary.n}ゴロの間に1点`:`${ball.primary.n}ゴロ アウト`,
+        text: runs>0?`${ball.battedBy||ball.primary.n}${ball.battedType||'ゴロ'}の間に1点`
+                   :`${ball.battedBy||ball.primary.n}${ball.battedType||'ゴロ'} アウト`,
         color: runs>0?'#5aa9ff':'#95a3b4'};
     }
     return advanceOnHit(1, `${ball.primary.n}への内野安打！`, 1);

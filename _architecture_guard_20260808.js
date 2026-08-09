@@ -102,6 +102,17 @@ check('runner sliding is centralized and rendered',
   /slideMode/.test(script)&&/slideBase/.test(script),
   'slide policy + pose + recording');
 
+const battedClassBody=stripComments(extractFunction('classifyBattedBallAtContact'));
+check('batted-ball identity is launch based and independent of catchability',
+  /c&&c\.la/.test(battedClassBody)&&!/canCatchAir|plan\.air/.test(battedClassBody)&&
+  /battedType:classifyBattedBallAtContact\(c\)/.test(script),
+  'launch identity boundary');
+check('batted-ball identity survives throw/result/recording',
+  /battedType:\(ball&&ball\.battedType\)/.test(script)&&
+  /\$\{battedBy\}\$\{battedType\} アウト/.test(script)&&
+  /bt:ball\.battedType/.test(script),
+  'throw + result + recording');
+
 const runTimeUses=count(/\brunTime\s*\(/g,clean);
 check('runTime is only defined and used inside reachTravelTime',runTimeUses===2,runTimeUses);
 const travelBody=stripComments(extractFunction('reachTravelTime'));
