@@ -1,0 +1,101 @@
+name: Verify b0805-25 final source
+
+on:
+  push:
+    branches:
+      - "agent/b0805-25-runner-controls-sliding"
+    paths:
+      - ".github/workflows/_verify_b0805_25_final.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify source and focused contracts
+        run: |
+          grep -F "const BUILD = 'b0805-25';" baseball3d.html
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+          node _test_defense_action_policy_20260809.js
+          node _test_runner_controls_sliding_20260809.js
+          python -m py_compile _ci_browser_regression_20260809.py
+          python _ci_browser_regression_20260809.py | tee /tmp/browser-regression.log
+
+      - name: Prepare unchanged validation corpus
+        run: |
+          git fetch origin agent/validation-b0805-23
+          mkdir -p /tmp/validation/validation
+          for f in recording_scenarios_20260808.json run_recording_corpus_20260808.js run_1000_fielding_routes_20260808.js run_50_games_20260808.js; do
+            git show origin/agent/validation-b0805-23:validation/$f > /tmp/validation/validation/$f
+          done
+          cp baseball3d.html /tmp/validation/
+          cd /tmp/validation
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          base=Path('baseball3d.html').read_text(encoding='utf-8')
+          freeze='<script>window.requestAnimationFrame=()=>0;</script>\n<script>\n"use strict";'
+          assert base.count('<script>\n"use strict";')==1
+          base=base.replace('<script>\n"use strict";',freeze,1)
+          corpus=json.loads(Path('validation/recording_scenarios_20260808.json').read_text(encoding='utf-8'))
+          assert len(corpus['plays'])==138
+          corpus_js='window.__OWNER_RECORDING_CORPUS='+json.dumps(corpus,ensure_ascii=False,separators=(',',':'))+';'
+          rec=Path('validation/run_recording_corpus_20260808.js').read_text(encoding='utf-8')
+          route=Path('validation/run_1000_fielding_routes_20260808.js').read_text(encoding='utf-8')
+          game=Path('validation/run_50_games_20260808.js').read_text(encoding='utf-8')
+          Path('/tmp/recording.html').write_text(base.replace('</body>',f'<script>{corpus_js}</script><script>{rec}</script></body>',1),encoding='utf-8')
+          Path('/tmp/route.html').write_text(base.replace('</body>',f'<script>{route}</script></body>',1),encoding='utf-8')
+          Path('/tmp/game50.html').write_text(base.replace('</body>',f'<script>{game}</script></body>',1),encoding='utf-8')
+          PY
+
+      - name: Run unchanged validation corpus
+        run: |
+          CHROME=$(command -v google-chrome || command -v chromium || command -v chromium-browser)
+          test -n "$CHROME"
+          timeout 360 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/recording.html > /tmp/recording.dom 2>/tmp/recording.err
+          timeout 360 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/route.html > /tmp/route.dom 2>/tmp/route.err
+          timeout 480 "$CHROME" --headless=new --no-sandbox --disable-dev-shm-usage --use-gl=swiftshader --enable-unsafe-swiftshader --allow-file-access-from-files --dump-dom file:///tmp/game50.html > /tmp/game50.dom 2>/tmp/game50.err
+          python - <<'PY'
+          from pathlib import Path
+          import html,json,re,urllib.parse,hashlib
+          def read_attr(path,name):
+              s=Path(path).read_text(encoding='utf-8',errors='replace')
+              m=re.search(name+r'="([^"]+)"',s)
+              if not m: raise SystemExit(name+' missing')
+              return json.loads(urllib.parse.unquote(html.unescape(m.group(1))))
+          rec=read_attr('/tmp/recording.dom','data-recording-corpus')
+          route=read_attr('/tmp/route.dom','data-route1000')
+          game=read_attr('/tmp/game50.dom','data-game50')
+          assert rec.get('plays')==138 and rec.get('verdict')=='PASS', rec
+          assert route.get('contacts')==1000 and route.get('verdict')=='PASS', route
+          assert game.get('games')==50 and game.get('completed')==50 and game.get('verdict')=='PASS', game
+          report={'build':'b0805-25','recording_corpus':rec,'route_1000':route,'game_50':game,'html_sha256':hashlib.sha256(Path('baseball3d.html').read_bytes()).hexdigest()}
+          Path('/tmp/b0805_25_validation.json').write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
+          PY
+
+      - name: Upload verified playable source
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseball3d-b0805-25-verified
+          path: |
+            baseball3d.html
+            /tmp/b0805_25_validation.json
+            /tmp/browser-regression.log
+          retention-days: 1

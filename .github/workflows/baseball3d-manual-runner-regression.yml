@@ -8,6 +8,7 @@ name: Baseball3D manual runner regression
       - "baseball3d.html"
       - "_test_harness_20260804.js"
       - "_test_runner_intent_20260808.js"
+      - "_test_runner_controls_sliding_20260809.js"
       - "_architecture_guard_20260808.js"
       - "_ci_browser_regression_20260809.py"
       - ".github/workflows/baseball3d-manual-runner-regression.yml"
@@ -16,6 +17,7 @@ name: Baseball3D manual runner regression
       - "baseball3d.html"
       - "_test_harness_20260804.js"
       - "_test_runner_intent_20260808.js"
+      - "_test_runner_controls_sliding_20260809.js"
       - "_architecture_guard_20260808.js"
       - "_ci_browser_regression_20260809.py"
       - ".github/workflows/baseball3d-manual-runner-regression.yml"
@@ -34,8 +36,10 @@ jobs:
           python -m py_compile _ci_browser_regression_20260809.py
           node --check _test_harness_20260804.js
           node --check _test_runner_intent_20260808.js
+          node --check _test_runner_controls_sliding_20260809.js
           node --check _architecture_guard_20260808.js
           node _architecture_guard_20260808.js
           node _test_runner_intent_20260808.js
-      - name: Browser baseline and S/X contract
+          node _test_runner_controls_sliding_20260809.js
+      - name: Browser runner-control contract
         run: python _ci_browser_regression_20260809.py --manual

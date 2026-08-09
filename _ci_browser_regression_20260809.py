@@ -162,6 +162,24 @@ def make_mutations(base: str) -> dict[int, str]:
         "  const earlyPenalty=0;\n",
         "mut46",
     )
+    out[47] = replace_once(
+        base,
+        "  if(source==='auto' && !o.force && (r.cmd||r.manualIntentLocked)) return false;\n",
+        "  if(source==='auto' && !o.force && r.cmd) return false;\n",
+        "mut47-manual-lock",
+    )
+    out[48] = replace_once(
+        base,
+        "  const directTarget=(advanceLead||returnLead)?lead:((advanceTrail||returnTrail)?trail:null);\n",
+        "  const directTarget=(advanceLead||returnLead)?lead:null;\n",
+        "mut48-tail-selection",
+    )
+    out[49] = replace_once(
+        base,
+        "function desiredRunnerSlide(r){\n",
+        "function desiredRunnerSlide(r){ return null; // mutation: disable all runner slides\n",
+        "mut49-slide",
+    )
     return out
 
 
@@ -169,9 +187,9 @@ def assert_full(results: dict[str, dict]) -> None:
     baseline = results["baseline"]
     bad = {k: v for k, v in baseline.items() if isinstance(v, dict) and v.get("verdict") != "PASS"}
     print(json.dumps({"baseline_count": len(baseline), "baseline_failed": bad}, ensure_ascii=False, indent=2))
-    if len(baseline) != 48 or bad:
+    if len(baseline) != 50 or bad:
         raise RuntimeError("baseline failed")
-    m = {n: results[f"mut{n}"] for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43,44,45,46]}
+    m = {n: results[f"mut{n}"] for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49]}
     checks = [
         (28,"test28_個別走者選択"),(29,"test29_守備と走者意図の分離"),(30,"test30_RunnerIntent契約"),
         (31,"test31_FieldingAssignment契約"),(32,"test32_壁反射担当交代"),(33,"test33_ReachModel契約"),
@@ -179,6 +197,7 @@ def assert_full(results: dict[str, dict]) -> None:
         (38,"test37_ThrowDecision固定規則"),(39,"test39_手動投手返球"),(40,"test40_ライブ送球終了禁止"),
         (41,"test41_PlayLifecycle門番"),(43,"test43_挟殺終了goal清算"),(44,"test44_現在脅威送球ポリシー"),
         (45,"test45_捕球動作ポリシー"),(46,"test46_挟殺行動ポリシー"),
+        (47,"test47_個別走者と手動固定"),(48,"test47_個別走者と手動固定"),(49,"test48_走者スライディング"),
     ]
     if m[37]["test37_ThrowDecision固定規則"].get("verdict") != "FAIL" and m[37]["test39_手動投手返球"].get("verdict") != "FAIL":
         raise RuntimeError("manual priority mutation escaped")
@@ -232,7 +251,7 @@ def main() -> int:
             results[name] = browser_json(dom)
         if args.manual:
             bad = {k:v for k,v in results["baseline"].items() if isinstance(v,dict) and v.get("verdict") != "PASS"}
-            if len(results["baseline"]) != 48 or bad:
+            if len(results["baseline"]) != 50 or bad:
                 raise RuntimeError(f"manual baseline failed: {bad}")
             print("manual-runner browser baseline PASS")
         else:

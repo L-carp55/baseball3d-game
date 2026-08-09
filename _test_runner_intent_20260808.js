@@ -15,14 +15,14 @@ function extract(name){
   }
   throw new Error('unterminated '+name);
 }
-const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','updateRunners','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'];
+const names=['runnerObservedDir','makeRunner','setRunnerIntent','setAutoGoal','setManualGoal','runnerSelectedForCommand','applyRunnerKeys','runnerClosePlayAtBase','desiredRunnerSlide','updateRunnerSlide','updateRunners','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'];
 const ctx={console,Math,held:{},runners:[],fielders:[],ball:null,throwPlay:null,S:{outs:0,preOuts:0,phase:'flight'},
   clamp:(v,a,b)=>v<a?a:v>b?b:v,baseOuts:()=>0,isForced:()=>false,RUN_SPEED:1/90,ACC_T:1.9,
   runnerETA:()=>1.2,runnerBackETA:()=>0.1,throwETAof:()=>0.4};
 vm.createContext(ctx);
 for(const n of names) vm.runInContext(extract(n),ctx,{filename:n+'.js'});
 function rr(origin,p,goal){return {origin,p,goal,autoGoal:goal,extra:0,sp:23,v:0,obsDir:0,out:false,intentSource:'fixture',intentSeq:0};}
-function clear(){for(const k of ['s','z','x','1','2','3'])ctx.held[k]=false;}
+function clear(){for(const k of ['a','s','d','z','x','c','1','2','3'])ctx.held[k]=false;}
 function assert(c,m){if(!c)throw new Error(m);}
 // Human-play regression (b0805-21): on a high fly, S must advance immediately and X must return immediately; automatic halfway/tag-up logic must not reinterpret the explicit command.
 ctx.ball={landed:false,canCatchAir:true,maxZ:30,z:18,vz:-8,t:1};
@@ -44,4 +44,4 @@ ctx.setManualGoal(api,2.5,'S');
 assert(api.goal===2.5&&api.autoGoal===3&&api.cmd==='S'&&api.intentSource==='manual'&&api.intentSeq===seq0+1,'manual API contract');
 ctx.setRunnerIntent(api,1,{source:'result',force:true,updateAuto:true,cmd:null});
 assert(api.goal===1&&api.autoGoal===1&&api.cmd===null&&api.intentSource==='result'&&api.intentSeq===seq0+2,'rule/result API contract');
-console.log('targeted b0805-23 RunnerIntent PASS');
+console.log('targeted b0805-25 RunnerIntent PASS');

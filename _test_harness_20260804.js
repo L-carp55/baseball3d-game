@@ -1118,6 +1118,78 @@
     out.test46_挟殺行動ポリシー={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
+
+  // ===== test47: 手動走塁のプレー内固定と A/C/D 個別操作 =====
+  (function(){
+    const chk=[];
+    const keys=['a','s','d','z','x','c','1','2','3'];
+    const clear=()=>keys.forEach(k=>held[k]=false);
+    try{
+      newGame(); S.phase='throwing'; ball=null; clear();
+      const rear=makeRunner(1,1,0,24), lead=makeRunner(2.4,3,1,24); runners=[rear,lead];
+      setManualGoal(rear,1,'S'); rear.cmd=null; // 一塁到達で1塁ぶんの入力を消費した直後
+      setManualGoal(lead,3,'S');
+      const blocked=setAutoGoal(rear,2,false);
+      chk.push({n:'手動到達後も後続走者を自動延長しない',ok:blocked===false&&rear.goal===1&&rear.autoGoal===2&&rear.manualIntentLocked===true});
+
+      newGame(); S.phase='throwing'; ball=null; clear();
+      const aRear=makeRunner(1.00,1,0,24), aLead=makeRunner(2.45,3,1,24); runners=[aRear,aLead];
+      held['a']=true; applyRunnerKeys();
+      chk.push({n:'Aは一番前だけ帰塁',ok:aLead.goal===2&&aLead.cmd==='X'&&aRear.goal===1&&aRear.intentSeq===0});
+
+      newGame(); S.phase='throwing'; ball=null; clear();
+      const cRear=makeRunner(1.15,1,0,24), cLead=makeRunner(2.45,3,1,24); runners=[cRear,cLead];
+      held['c']=true; applyRunnerKeys();
+      chk.push({n:'Cは一番後ろだけ進塁',ok:cRear.goal===2&&cRear.cmd==='S'&&cLead.goal===3&&cLead.intentSeq===0});
+
+      newGame(); S.phase='throwing'; ball=null; clear();
+      const dRear=makeRunner(1.45,2,0,24), dLead=makeRunner(2.45,3,1,24); runners=[dRear,dLead];
+      held['d']=true; applyRunnerKeys();
+      chk.push({n:'Dは一番後ろだけ帰塁',ok:dRear.goal===1&&dRear.cmd==='X'&&dLead.goal===3&&dLead.intentSeq===0});
+
+      newGame(); S.phase='throwing'; ball=null; clear();
+      const zRear=makeRunner(1.2,1,0,24), zLead=makeRunner(2.2,2,1,24); runners=[zRear,zLead];
+      held['z']=true; applyRunnerKeys();
+      chk.push({n:'Zは従来どおり一番前だけ進塁',ok:zRear.goal===1&&zRear.intentSeq===0&&zLead.goal===3&&zLead.cmd==='S'});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{clear(); throwPlay=null; ball=null;}
+    const bad=chk.filter(x=>!x.ok);
+    out.test47_個別走者と手動固定={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
+  // ===== test48: 二三塁の通常スライディングと僅差時ヘッドスライディング =====
+  (function(){
+    const chk=[];
+    try{
+      newGame(); throwPlay=null; ball=null;
+      const r2=makeRunner(1.88,2,1,24); updateRunnerSlide(r2,0);
+      chk.push({n:'二塁到達は足から滑る',ok:r2.slideMode==='feet'&&r2.slideBase===2&&r2.slideT>0});
+      const r3=makeRunner(2.88,3,2,24); updateRunnerSlide(r3,0);
+      chk.push({n:'三塁到達は足から滑る',ok:r3.slideMode==='feet'&&r3.slideBase===3&&r3.slideT>0});
+      const round=makeRunner(1.88,3,1,24); updateRunnerSlide(round,0);
+      chk.push({n:'二塁を回る走者は滑らない',ok:round.slideT===0});
+
+      throwPlay={target:1,stage:'fly',kind:'infield',decisionMargin:0.12};
+      const first=makeRunner(0.90,1,0,24); updateRunnerSlide(first,0);
+      chk.push({n:'一塁の僅差はヘッドスライディング',ok:first.slideMode==='head'&&first.slideBase===1});
+
+      throwPlay={target:4,stage:'catch',kind:'outfield',decisionMargin:0.20};
+      const home=makeRunner(3.90,4,3,24); updateRunnerSlide(home,0);
+      chk.push({n:'本塁の僅差はヘッドスライディング',ok:home.slideMode==='head'&&home.slideBase===4});
+
+      throwPlay={target:2,stage:'fly',kind:'pickoff',decisionMargin:0.10};
+      const back=makeRunner(2.12,2,2,24); back.goal=2; back.mustReturn=true; updateRunnerSlide(back,0);
+      chk.push({n:'僅差の帰塁はヘッドスライディング',ok:back.slideMode==='head'&&back.slideBase===2});
+
+      throwPlay={target:1,stage:'transfer',kind:'infield',decisionMargin:1.20}; ball=null;
+      const routine=makeRunner(0.90,1,0,24); updateRunnerSlide(routine,0);
+      chk.push({n:'余裕の一塁到達は滑らない',ok:routine.slideT===0});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{throwPlay=null; ball=null;}
+    const bad=chk.filter(x=>!x.ok);
+    out.test48_走者スライディング={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();

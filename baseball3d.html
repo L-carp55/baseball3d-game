@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-23';
+const BUILD = 'b0805-25';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -115,10 +115,10 @@ function recTick(dt){
   REC.cur.f.push({
     ph:S.phase,
     o:S.outs, b:S.balls, s:S.strikes, in:S.inning+(S.half?'裏':'表'),
-    key:['s','z','x'].filter(k=>held[k]).join('')||'-',
+    key:['a','s','d','z','x','c'].filter(k=>held[k]).join('')||'-',
     ball: ball?{x:r2(ball.x),y:r2(ball.y),z:r2(ball.z),
       land:!!ball.landed, air:!!ball.canCatchAir, pri:ball.primary?ball.primary.n:null,
-      cm:ball.catchMode||''}:null,
+      cm:ball.catchMode||'', bt:ball.battedType||''}:null,
     thr: throwPlay?{st:throwPlay.stage, to:throwPlay.target,
       by:throwPlay.thrower?throwPlay.thrower.n:null, kind:throwPlay.kind,
       ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0,
@@ -129,7 +129,9 @@ function recTick(dt){
     run: runners.filter(r=>!r.out||r.p<4).map(r=>
       `${r.origin}:${r2(r.p)}→${r2(r.goal)}${r.out?'X':''}${r.cmd||''}${r.mustReturn?'R':''}${r.tagUp?'T':''}`),
     intent: runners.filter(r=>!r.out||r.p<4).map(r=>
-      `${r.origin}:${r.intentSource||'legacy'}#${r.intentSeq||0}:d${runnerObservedDir(r)}`),
+      `${r.origin}:${r.intentSource||'legacy'}#${r.intentSeq||0}:d${runnerObservedDir(r)}${r.manualIntentLocked?'L':''}`),
+    slide: runners.filter(r=>r.slideT>0).map(r=>
+      `${r.origin}:${r.slideMode||''}@${r.slideBase==null?'':r.slideBase}#${r.slideSeq||0}`),
     fld: fielders.map(f=>`${f.n}${r2(f.cx)},${r2(f.cy)}${f.primary?'*':''}${f.coverBase!=null?('c'+f.coverBase):''}`),
     role: fielders.map(f=>`${f.n}:${f.roleSource||'legacy'}#${f.roleSeq||0}`),
     aim: fielders.map(f=>`${f.n}:${f.aimSource||'legacy'}#${f.aimSeq||0}:${r2(f.tx)},${r2(f.ty)}`)
@@ -143,7 +145,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/X=操作 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -1392,7 +1394,8 @@ const RUN_SPEED = 1/90;                  // 1ft/秒あたりの塁進行。走�
 /* 走者の初期状態を一か所で作る。goal/autoGoal/観測方向の初期値が経路ごとにずれると、
    守備が存在しない移動を見たり、録画に決定元が残らない。 */
 function makeRunner(p,goal,origin,sp){
-  return {p,goal,autoGoal:goal,extra:0,origin,sp,obsDir:0,intentSource:'init',intentSeq:0};
+  return {p,goal,autoGoal:goal,extra:0,origin,sp,obsDir:0,intentSource:'init',intentSeq:0,
+    manualIntentLocked:false,slideT:0,slideMode:'',slideBase:null,slideDir:0,slideSeq:0};
 }
 /* 守備・判定が参照してよいのは、goalから推測した意図ではなく直前フレームの実移動方向だけ。
    goalを変えた瞬間に守備が走者の意図を先読みした OI-056 / Sol所見14 の構造を断つ。 */
@@ -1428,12 +1431,57 @@ function applyRunnerResult(res){
 }
 /* 走者も守備と同じ加速で走る。止まった状態から ACC_T 秒かけて最高速に達する。
    これがあるので、同じ最高速でも塁間はスプリントより時間がかかる。 */
+function runnerClosePlayAtBase(r,base){
+  const T=throwPlay;
+  if(!T || T.target!==base) return false;
+  if(T.stage==='rundown' || T.kind==='pickoff' || T.kind==='steal') return true;
+  const margin=Number.isFinite(T.decisionMargin)?Math.abs(T.decisionMargin):99;
+  if(margin<=0.45 || T.stage==='catch') return true;
+  if(ball){
+    const bp=throwPoint(base), bd=Math.hypot(ball.x-bp[0],ball.y-bp[1]);
+    if(bd<34 && Math.abs(base-r.p)<0.16) return true;
+  }
+  return false;
+}
+function desiredRunnerSlide(r){
+  const dir=r.goal>r.p+1e-6 ? 1 : (r.goal<r.p-1e-6 ? -1 : 0);
+  if(!dir) return null;
+  const base=Math.round(r.goal);
+  if(base<1 || base>4 || Math.abs(r.goal-base)>0.02) return null;  // 塁を回る途中では滑らない
+  const remaining=Math.abs(base-r.p);
+  if(remaining>0.14) return null;                                // 約12.6ft手前から動作開始
+  if(r.slideBase===base && r.slideDir===dir) return null;
+  if(dir>0 && (base===2 || base===3)) return {mode:'feet',base,dir};
+  if(runnerClosePlayAtBase(r,base) && (dir<0 || base===1 || base===4 || r.mustReturn))
+    return {mode:'head',base,dir};
+  return null;
+}
+function updateRunnerSlide(r,dt){
+  if(r.slideT>0) r.slideT=Math.max(0,r.slideT-dt);
+  if(r.slideT<=0 && Math.abs(r.goal-r.p)>0.22){ r.slideBase=null; r.slideDir=0; r.slideMode=''; }
+  const slide=desiredRunnerSlide(r);
+  if(!slide) return;
+  r.slideMode=slide.mode; r.slideBase=slide.base; r.slideDir=slide.dir;
+  r.slideT=0.82; r.slideSeq=(r.slideSeq||0)+1;
+}
+function runnerSlidePose(r){
+  if(!(r.slideT>0)) return null;
+  if(r.slideMode==='head'){
+    return {lean:1.28,crouch:1.38,rise:-0.52,glove:false,
+      armL:-2.95,armR:-2.95,armLZ:-0.18,armRZ:0.18,elbowL:0.05,elbowR:0.05,
+      legL:0.25,legR:-0.25,kneeL:0.30,kneeR:0.30};
+  }
+  return {lean:-0.72,crouch:1.18,rise:-0.58,glove:false,
+    armL:0.55,armR:0.55,armLZ:-0.12,armRZ:0.12,elbowL:0.45,elbowR:0.45,
+    legL:-1.08,legR:-0.76,kneeL:0.12,kneeR:0.20};
+}
 function updateRunners(dt){
   const trapped = throwPlay && throwPlay.stage==='rundown' ? throwPlay.rd.r : null;
   runners.forEach(r=>{
     // 挟まれた走者は左右を見ながらなので全速では走れない
     const top=(r.sp||23)*(r===trapped?0.86:1), acc=top/ACC_T;
     const pBefore=r.p;
+    updateRunnerSlide(r,dt);
     r.dir = r.p<r.goal-1e-6 ? 1 : (r.p>r.goal+1e-6 ? -1 : 0);   // 走者を動かす内部方向（守備は読まない）
     if(r.p < r.goal){
       r.v=Math.min(top,(r.v||0)+acc*dt);
@@ -1448,11 +1496,13 @@ function updateRunners(dt){
       const crossed = r.p < r.goal-1e-9 && Math.floor(r.p) > Math.floor(pPrev);
       const throughBase = pPrev>0.5 && Math.abs(pPrev-Math.round(pPrev))<1e-6 && r.p>pPrev;
       if(crossed || throughBase) r.v*=0.65;
-      // 目標の塁に着いたら、手動の進塁指示は消費して消える（勝手に次へ行かない）
-      if(r.p>=r.goal-1e-9 && r.cmd==='S') r.cmd=null;
+      // 1塁ぶんの手動キーは到達時に消費する。ただし手動固定はプレー終了まで残し、
+      // 後段のsafeReachが勝手に次の塁へ延長しないようにする。
+      if(r.p>=r.goal-1e-9 && r.cmd) r.cmd=null;
     }else if(r.p > r.goal){
       r.v=Math.min(top*0.8,(r.v||0)+acc*dt);
       r.p=Math.max(r.goal, r.p - r.v*dt*RUN_SPEED);
+      if(r.p<=r.goal+1e-9 && r.cmd) r.cmd=null;
     }else{
       /* 目標に着いた瞬間に速度を0にすると、Sを押し続けて次の塁へ向かう時に
          毎回その場で止まってから走り直すことになる。急には止まれないので徐々に落とす。 */
@@ -4006,7 +4056,7 @@ function draw(){
       if(r.p>=3.999) return;                       // 生還した走者は消す
       const q=runnerPos(r);
       const moving = Math.abs(r.goal-r.p)>0.01;
-      drawFigure(runKit, q.x, q.z, q.face, moving ? r.p*90 : 0, 1, moving ? (r.v||0)/Math.max(1,r.sp||24) : 0);
+      drawFigure(runKit,q.x,q.z,q.face,moving?r.p*90:0,1,moving?(r.v||0)/Math.max(1,r.sp||24):0,runnerSlidePose(r));
       shadowAt(q.x,q.z,1.15);
     });
   }else{
@@ -4369,7 +4419,7 @@ function drawHUD(){
     const lines=[];
     const bn={1:'一塁',2:'二塁',3:'三塁',4:'本塁'};
     if(isPlayerBatting()){
-      lines.push('S = 進塁（打者と詰まっている走者）　Z = 全員強行　X = 帰塁');
+      lines.push('S/X=全員　Z/A=先頭の走者　C/D=最後尾の走者（進塁/帰塁）');
       const risky=runners.filter(r=>!r.out && r.goal>(r.safeGoal!==undefined?r.safeGoal:99));
       const where=runners.filter(r=>!r.out).map(r=>bn[Math.min(4,Math.ceil(r.goal))]||'本塁').join(' ');
       if(where) lines.push(`▶ 走者の狙い: ${where}${risky.length?'（無理な進塁は刺されます）':''}`);
@@ -4442,19 +4492,21 @@ stage.addEventListener('mousedown', e=>{
 const held = {};
 window.addEventListener('keyup', e=>{ held[e.key.toLowerCase()]=false; });
 window.addEventListener('blur', ()=>{ for(const k in held) held[k]=false; });
-/* 盗塁。投球中にSを押している間、塁上の走者が一斉に次の塁へ走る（重盗も可）。
-   一度走り出したら止まらない（実際の盗塁と同じで、戻るのは牽制の話）。 */
+/* 盗塁。投球中もS/Z/Cで全員・先頭・最後尾を選べる。A/X/Dで途中帰塁もできる。 */
 function updateStealCommands(){
   if(!isPlayerBatting() || S.over || isPaused()) return;
   /* 投球動作が始まる前（前の打球の後や球種を選んでいる間）からSを押していると、
      走者は投手を見ずに飛び出す＝牽制で刺される。押しっぱなしで確実に盗塁できる抜け道を塞ぐ。 */
-  if(S.phase==='msg'||S.phase==='play'){ S.earlyHold = !!(held['s']||held['z']); return; }
+  const advanceHeld=!!(held['s']||held['z']||held['c']);
+  if(S.phase==='msg'||S.phase==='play'){ S.earlyHold=advanceHeld; return; }
   if(S.phase==='windup'){
-    if(S.earlyHold && (held['s']||held['z']) && runners.some(r=>!r.out)){
+    if(S.earlyHold && advanceHeld && runners.some(r=>!r.out)){
       S.jumpEarly=true;
-      runners.forEach(r=>{ if(r.out||r.origin>=4) return;
-        setRunnerIntent(r,Math.min(4,r.origin+1),{source:'steal',force:true,updateAuto:true}); r.jumped=true;
-        r.p=Math.max(r.p, r.origin+0.16); r.v=Math.max(r.v||0,(r.sp||23)*0.5); });
+      const before=new Map(runners.map(r=>[r,r.goal]));
+      applyRunnerKeys();
+      runners.forEach(r=>{ if(r.out||r.origin>=4||r.goal<=before.get(r)+0.5) return;
+        r.intentSource='steal'; r.manualIntentLocked=true; r.jumped=true;
+        r.p=Math.max(r.p,r.origin+0.16); r.v=Math.max(r.v||0,(r.sp||23)*0.5); });
     }
   }
   if(!(S.phase==='windup'||S.phase==='pitch')) return;
@@ -4501,23 +4553,30 @@ function updateRunnerCommands(){
      ここで受け付けを止めていたため、押していた進塁の指示が無視されていた。 */
   applyRunnerKeys();
 }
-/* 走塁キーの中身。打球処理中・投球中・盗塁の送球中で同じ規則を使う。
-   S=進塁（前の走者を追い越さない） / X=帰塁（後ろの走者が入る塁へは戻れない）。 */
+/* 走塁キーの中身。S/X=全員、Z/A=先頭、C/D=最後尾。塁の競合・追い越し禁止は共通。 */
 function applyRunnerKeys(){
-  const go = held['s']||held['z'], back = held['x'];
+  const advanceAll=!!held['s'], returnAll=!!held['x'];
+  const advanceLead=!advanceAll && !!held['z'];
+  const returnLead=!returnAll && !!held['a'];
+  const advanceTrail=!advanceAll && !advanceLead && !!held['c'];
+  const returnTrail=!returnAll && !returnLead && !!held['d'];
+  const go=advanceAll||advanceLead||advanceTrail;
+  const back=returnAll||returnLead||returnTrail;
   if(!go && !back) return;
-  // 後ろの走者（打者走者）から前の走者の順に並べる
+  if(go && back) return;  // 矛盾する同時入力では誰も動かさない
+  // 後ろの走者（打者走者）から前の走者の順。塁の競合処理はこの順序で行う。
   const live = runners.filter(r=>!r.out).sort((a,b)=>a.origin-b.origin);
-  /* Zは「先頭の走者だけ」を走らせる。二塁走者を本塁へ返したいだけなのに
-     Sだと打者走者まで一塁を回ってしまい、挟まれる、という事故を避ける。 */
-  const leadOnly = held['z'] && !held['s'];
-  const lead = live.filter(r=>r.p<4).sort((a,b)=>b.p-a.p)[0];
-  /* 塁を指定して1人だけ動かす。1〜3キーがその塁の走者に対応する（1=一塁走者…）。
-     「先頭だけ(Z)」しかなかったため、一三塁で一塁走者だけを走らせることができなかった。
-     指定中は S/X もその走者にだけ効く。 */
+  const ordered=live.filter(r=>r.p<4);
+  const lead=ordered.slice().sort((a,b)=>b.p-a.p || b.origin-a.origin)[0];
+  const trail=ordered.slice().sort((a,b)=>a.p-b.p || a.origin-b.origin)[0];
+  const directTarget=(advanceLead||returnLead)?lead:((advanceTrail||returnTrail)?trail:null);
+  const leadOnly=advanceLead;
+  /* cmd is semantic direction, not the physical key: downstream tag-up/return logic reads S/X. */
+  const advanceCmd='S', returnCmd='X';
+  /* 1〜3+S/Xは従来どおり特定の塁の走者を選ぶ。A/C/D/Zより優先する。 */
   const pickBase = ['1','2','3'].findIndex(k=>held[k])+1;
   const picked = pickBase ? live.find(r=>Math.floor(r.p+1e-9)===pickBase || r.origin===pickBase) : null;
-  const selected = r => runnerSelectedForCommand(r,leadOnly,lead,picked);
+  const selected = r => runnerSelectedForCommand(r,leadOnly,lead,picked,directTarget);
   /* 高く上がって捕られそうな打球が飛んでいる間、Sは「タッチアップの構え」を意味する。
      ここで毎フレーム進塁を命じ続けていたため、塁へ戻す処理が打ち消され、
      Sを押しっぱなしにした走者は離塁したまま捕球を迎えてタッチアップできなかった。 */
@@ -4539,15 +4598,15 @@ function applyRunnerKeys(){
         const here=Math.floor(r.p+1e-9);
         const floorMax=(r.origin===0?1:0);
         const max=(ahead && ahead.goal<4) ? Math.max(floorMax,Math.ceil(ahead.goal-1e-9)-1) : 4;
-        setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
+        setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),advanceCmd);
         r.tagUp=false;
       });
     }else{
       for(const r of live){
-        if(r.origin>=4 || !runnerSelectedForCommand(r,false,lead,picked)) continue;
+        if(r.origin>=4 || !selected(r)) continue;
         r.tagUp=false;
         const backBase=r.origin>0 ? r.origin : Math.max(1,Math.floor(r.p+1e-9));
-        setManualGoal(r,backBase,'X');
+        setManualGoal(r,backBase,returnCmd);
       }
     }
     return;
@@ -4567,13 +4626,13 @@ function applyRunnerKeys(){
         if(Math.abs(r.p-r.origin)>0.02) continue;
         r.mustReturn=false;
       }
-      if(!runnerSelectedForCommand(r,leadOnly,lead,picked)) continue;
+      if(!selected(r)) continue;
       const here=Math.floor(r.p+1e-9);
       /* 前の走者が本塁へ向かっている（または生還済み）なら塁は空くので塞がれない。
          本塁は何人でも入れる。ここを一律に「前の走者の1つ手前まで」にしていたため、
          1人が生還した瞬間に後ろの走者が三塁で止まっていた。 */
       const max = (ahead && ahead.goal<4) ? ahead.goal-1 : 4;
-      setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),'S');
+      setManualGoal(r,Math.max(here,Math.min(here+1,max,4)),advanceCmd);
     }
   }else{
     /* 帰塁は後ろの走者から決める。後ろの走者が入る塁へは戻れないので、
@@ -4581,10 +4640,10 @@ function applyRunnerKeys(){
        打者走者は本塁へは戻れないが、一塁を回っていれば一塁へ戻れる。 */
     for(let i=0;i<live.length;i++){
       const r=live[i], behind=live[i-1];
-      if(!runnerSelectedForCommand(r,false,lead,picked)) continue;
+      if(!selected(r)) continue;
       const here=Math.floor(r.p+1e-9);
       const min = behind ? behind.goal+1 : (r.origin===0 ? 1 : 0);
-      setManualGoal(r,Math.min(4,Math.max(here,min)),'X');
+      setManualGoal(r,Math.min(4,Math.max(here,min)),returnCmd);
     }
   }
 }
@@ -4599,10 +4658,8 @@ window.addEventListener('keydown', e=>{
   if(e.key==='f'||e.key==='F'){ recSave(false); return; }
   if(e.key==='g'||e.key==='G'){ recSave(true);  return; }
   if(isPaused()) return;                       // ポーズ中は操作を受け付けない
-  /* 打球が飛んでいる間の操作は S / Z / X / C。キーの並びがそのまま塁の位置になる。
-         S = 二塁
-     Z=三塁  X=本塁  C=一塁
-     走塁も同じ指の位置で S=進塁 / X=帰塁。矢印キーは投球の狙い用に残してある。 */
+  /* 守備時は S/Z/C/X=二/三/一/本塁。攻撃時は
+     S/X=全員、Z/A=先頭、C/D=最後尾の走者を進塁/帰塁させる。 */
   const inPlay = (S.phase==='flight'||S.phase==='throwing');   // 結果演出中(play)は受け付けない
   const k = e.key.toLowerCase();
   if(inPlay && !isPlayerBatting()){
@@ -4612,7 +4669,7 @@ window.addEventListener('keydown', e=>{
     if(k==='x'){ setManualThrow(4); return; }
     if(k==='0'){ setManualThrow('P'); return; }
   }
-  // 走塁(S/Z/X)は「押されている間ずっと」で判定するので、ここでは扱わない（下の held を見る）
+  // 走塁(A/S/D/Z/X/C)はheldを毎フレーム読むので、ここでは扱わない
   if(e.code==='Space'){
     e.preventDefault();
     if(S.phase==='pitch' && isPlayerBatting() && !pitch.swung)
@@ -4662,15 +4719,18 @@ function ui(){
        <div class="row" style="margin-top:6px">打ち方:
          ${mb(0,'ミート打ち','1')}${mb(1,'強振','2')}${mb(2,'バント','3')}</div>
        <div class="muted">ミート打ち＝当たる範囲が広いかわりに飛ばない／強振＝狭いが飛ぶ／バントは狙いの左右で転がす方向が決まります（2ストライクからのバント失敗は三振）。</div>
-       <div class="muted">投球中に <span class="k">S</span> を押すと<b>盗塁</b>。走者が複数いれば全員が一斉に走ります（重盗）。</div>
+       <div class="muted">投球中も同じ操作で盗塁できます。<span class="k">S</span>＝全員、<span class="k">Z</span>＝先頭、<span class="k">C</span>＝最後尾だけスタート。</div>
        <div class="muted">輪の中心が球に近く、ミートの瞬間がそろうほど強い当たり。球の下を狙えばフライ、上ならゴロ。早く振れば引っ張り、遅ければ流し打ち。</div>
        <div class="row" style="margin-top:6px">
-         <button id="pushBtn" ${inPlay?'':'disabled style="opacity:.45"'}>進塁 <span class="k">S</span></button>
-         <button id="forceBtn" ${inPlay?'':'disabled style="opacity:.45"'}>先頭だけ <span class="k">Z</span></button>
-         <button id="holdBtn" ${inPlay?'':'disabled style="opacity:.45"'}>帰塁 <span class="k">X</span></button>
+         <button id="pushBtn" ${inPlay?'':'disabled style="opacity:.45"'}>全員進塁 <span class="k">S</span></button>
+         <button id="holdBtn" ${inPlay?'':'disabled style="opacity:.45"'}>全員帰塁 <span class="k">X</span></button>
+         <button id="forceBtn" ${inPlay?'':'disabled style="opacity:.45"'}>先頭進塁 <span class="k">Z</span></button>
+         <button id="leadBackBtn" ${inPlay?'':'disabled style="opacity:.45"'}>先頭帰塁 <span class="k">A</span></button>
+         <button id="trailGoBtn" ${inPlay?'':'disabled style="opacity:.45"'}>最後尾進塁 <span class="k">C</span></button>
+         <button id="trailBackBtn" ${inPlay?'':'disabled style="opacity:.45"'}>最後尾帰塁 <span class="k">D</span></button>
        </div>
-       <div class="muted"><span class="k">S</span>＝全員が次の塁へ／<span class="k">Z</span>＝<b>先頭の走者だけ</b>次の塁へ（打者走者を巻き込まずに前の走者だけ返せます）／<span class="k">X</span>＝手前の塁へ戻る。
-         押していない間は自動で判断します。どこまで行けるかは足と送球の勝負で決まり、間に合わなければ刺されます。</div>`;
+       <div class="muted"><span class="k">S/X</span>＝全員、<span class="k">Z/A</span>＝<b>一番前</b>、<span class="k">C/D</span>＝<b>一番後ろ</b>の走者を進塁/帰塁。
+         一度個別に指示した走者は、そのプレー中に自動判断で別の塁へ勝手に延長されません。</div>`;
   }else{
     const inPlay = (S.phase==='flight'||S.phase==='throwing');
     const btn=(v,lab)=>`<button class="thr ${manualThrow===v?'on':''}" data-t="${v}" ${inPlay?'':'disabled style="opacity:.45"'}>${lab}</button>`;
@@ -4716,8 +4776,11 @@ function ui(){
     b.onclick=()=>{ batMode=+b.dataset.bm; ui(); };   // ポーズ中に打ち方を決められる
   });
   const pushB=document.getElementById('pushBtn'); if(pushB) pushB.onclick=function(){advanceRunners(false);};
-  const forceB=document.getElementById('forceBtn'); if(forceB) forceB.onclick=function(){pressRunnerKey('z');};
+  const forceB=document.getElementById('forceBtn'); if(forceB) forceB.onclick=()=>pressRunnerKey('z');
   const holdB=document.getElementById('holdBtn'); if(holdB) holdB.onclick=retreatRunners;
+  const leadBackB=document.getElementById('leadBackBtn'); if(leadBackB) leadBackB.onclick=()=>pressRunnerKey('a');
+  const trailGoB=document.getElementById('trailGoBtn'); if(trailGoB) trailGoB.onclick=()=>pressRunnerKey('c');
+  const trailBackB=document.getElementById('trailBackBtn'); if(trailBackB) trailBackB.onclick=()=>pressRunnerKey('d');
   const pb=document.getElementById('pauseBtn'); if(pb) pb.onclick=togglePause;
   const rsb=document.getElementById('rosterBtn'); if(rsb) rsb.onclick=()=>setRoster(true);
   const rcb=document.getElementById('recBtn');    if(rcb) rcb.onclick=()=>recSave(false);
@@ -4774,11 +4837,16 @@ function setManualThrow(t){
    source/intentSeqを録画へ残すことで、後段の上書きも一次証拠から特定できる。 */
 function setRunnerIntent(r,g,opt){
   const o=opt||{}, goal=clamp(g,0,4), source=o.source||'auto';
+  const manualSource=(source==='manual'||source==='steal');
   if(o.updateAuto!==false) r.autoGoal=goal;
-  // 通常の自動判断は明示的なS/Xを上書きしない。規則・結果のforceだけが優先できる。
-  if(source==='auto' && !o.force && r.cmd) return false;
+  /* 手動キーは1塁到達時にcmdを消費しても、このプレー中の最終意思として残す。
+     b0805-23ではcmdだけを門番にしたため、打者走者が一塁でcmdを消費した直後、
+     先行走者が三塁へ走っているとsafeReachが打者走者を勝手に二塁へ延長した。 */
+  if(source==='auto' && !o.force && (r.cmd||r.manualIntentLocked)) return false;
   r.goal=goal;
   if(Object.prototype.hasOwnProperty.call(o,'cmd')) r.cmd=o.cmd;
+  if(manualSource) r.manualIntentLocked=true;
+  else if(o.force) r.manualIntentLocked=false;  // 規則・アウト・結果確定だけは手動より優先
   r.intentSource=source;
   r.intentSeq=(r.intentSeq||0)+1;
   return true;
@@ -4789,9 +4857,10 @@ function setAutoGoal(r,g,force){
 function setManualGoal(r,g,cmd){
   return setRunnerIntent(r,g,{source:'manual',force:true,updateAuto:false,cmd});
 }
-function runnerSelectedForCommand(r,leadOnly,lead,picked){
-  if(leadOnly && r!==lead) return false;
+function runnerSelectedForCommand(r,leadOnly,lead,picked,directTarget){
   if(picked && r!==picked) return false;
+  if(directTarget && r!==directTarget) return false;
+  if(leadOnly && r!==lead) return false;
   return true;
 }
 /* 進塁。1回押したら1つだけ進む「一発の指示」で、塁に着いたら指示は消える
