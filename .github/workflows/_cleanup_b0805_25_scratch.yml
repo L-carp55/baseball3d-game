@@ -1,0 +1,30 @@
+name: Cleanup b0805-25 scratch branches
+
+on:
+  push:
+    branches:
+      - "agent/b0805-25-runner-controls-sliding"
+    paths:
+      - ".github/workflows/_cleanup_b0805_25_scratch.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Delete scratch refs, keep clean review branch
+        run: |
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git ls-remote --heads origin 'refs/heads/agent/b0805-25-runner-controls-sliding*' \
+            | awk '{sub("refs/heads/","",$2); print $2}' \
+            | grep -v '^agent/b0805-25-runner-controls-sliding-clean$' \
+            > /tmp/delete-refs || true
+          while IFS= read -r ref; do
+            test -z "$ref" || git push origin --delete "$ref"
+          done < /tmp/delete-refs
