@@ -22,6 +22,7 @@ jobs:
 
       - name: Reconstruct and verify patch
         run: |
+          # All staged chunks are now present; natural sort preserves .05a/.05b/.05c/.06a order.
           files=$(printf '%s\n' .b0805_24_payload.* | sort -V)
           test -n "$files"
           cat $files | tr -d '\r\n' | base64 -d > /tmp/b0805-24.patch
