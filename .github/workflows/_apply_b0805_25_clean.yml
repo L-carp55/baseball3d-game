@@ -1,0 +1,60 @@
+name: Apply b0805-25 cleanly
+
+on:
+  push:
+    branches:
+      - "agent/b0805-25-runner-controls-sliding-clean"
+    paths:
+      - ".github/workflows/_apply_b0805_25_clean.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-25-runner-controls-sliding-clean
+          fetch-depth: 0
+
+      - name: Download, decode, and apply patch
+        run: |
+          curl -fsSL 'https://raw.githubusercontent.com/L-carp55/baseball3d-game/agent/b0805-25-runner-controls-sliding/.b0805_25_patch.gz.b64' -o /tmp/patch.b64
+          base64 -d /tmp/patch.b64 | gzip -d > /tmp/b0805-25.patch
+          head -c 11 /tmp/b0805-25.patch | grep -F 'diff --git '
+          git apply --check /tmp/b0805-25.patch
+          git apply /tmp/b0805-25.patch
+          git diff --check
+
+      - name: Validate focused contracts and mutations
+        run: |
+          grep -F "const BUILD = 'b0805-25';" baseball3d.html
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+          node _test_defense_action_policy_20260809.js
+          node _test_runner_controls_sliding_20260809.js
+          python -m py_compile _ci_browser_regression_20260809.py
+          python _ci_browser_regression_20260809.py
+
+      - name: Squash and force-push clean result
+        run: |
+          rm -f .github/workflows/_apply_b0805_25_clean.yml
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --soft a6ed22b0da133c00c9120261d7d45847cd37562b
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve runner intent and add individual sliding controls"
+          git push --force origin HEAD:agent/b0805-25-runner-controls-sliding-clean
