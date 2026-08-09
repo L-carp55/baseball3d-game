@@ -1,0 +1,123 @@
+name: Finalize b0805-24 verified patch
+
+on:
+  push:
+    branches:
+      - "agent/b0805-24-batted-ball-rundown-integrity"
+    paths:
+      - ".github/workflows/_apply_b0805_24_finalize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/b0805-24-batted-ball-rundown-integrity
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import base64, gzip, hashlib, json, os, urllib.request
+
+          repo='L-carp55/baseball3d-game'
+          attached=['.b0805_24_gz.00','.b0805_24_gz.01','.b0805_24_gz.02','.b0805_24_gz.03','.b0805_24_gz.04a']
+          orphan=[
+            ('04b','528be0db67c41dc0317af7ef094a234424730dc1'),
+            ('05','3d37258cd2f32f9f8337646e07c47506f0d4e931'),
+            ('06','a099b4b1a91ee7cdf5a6b0d6e4672e1925916dd3'),
+            ('07','a480ff4b0c43be05890ce498191517e941267bf3'),
+            ('08','959d46c02e04ea51d3f598b3ccfff000da6e526f'),
+            ('09','d3831e3ad841456fb9a4d74c213afdd4bf43f711'),
+            ('10','1e4e8f5ec95fea63a855fcb124c1d572eec992df'),
+            ('11','cd94d1b51e13e0352e36823e5e67ffd8fe311eb7'),
+            ('12','6d94eef9bdb63a31e312cf655475f6d68cdc7b8d'),
+            ('13','c776e2fc0e9d69df11500b9ed6175a2b612ad535'),
+            ('14','697251b742439febcf93b3aec2a3a600d28ce648'),
+            ('15','c61408d6fe0f40526123917b54c0d03a809d922f'),
+            ('16','416177574e88d77442e8f9d7fd43c0b3943c5eb7'),
+            ('17','fefdb229fe392333ec85b17b4245e77f44ab4c9f'),
+            ('18','309e47c5868318a239e8db8d05125d0d075f4cb2'),
+            ('19','4253fba9aaaa18b4da41088eac228fc3eb7dd525'),
+            ('20','40fc7fe9cd7e8abc209caf40354bedf41868e058'),
+            ('21','a69fcef94e737a94a0f54b8519c61cf5d17cbb05'),
+            ('22','a4d90af1978c6c343a083e4cc97df363edb20627'),
+            ('23','d20466eb36f0551eae56234616bd1e9b39f81210'),
+            ('24','ecc675cf91baee4bc246b5910b91e42c112ca9be'),
+            ('25','9e80a5c6874a8fecbfb434fe4321f20c764cb1d2'),
+            ('26','f08d5bc3c7a03ccc4858bb410df9202ead21dc70'),
+          ]
+
+          chunks=[]
+          for p in attached:
+            q=Path(p)
+            if not q.exists():
+              raise SystemExit(f'missing attached chunk: {p}')
+            chunks.append(q.read_bytes())
+
+          token=os.environ['GH_TOKEN']
+          for label,sha in orphan:
+            req=urllib.request.Request(
+              f'https://api.github.com/repos/{repo}/git/blobs/{sha}',
+              headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json'}
+            )
+            with urllib.request.urlopen(req) as r:
+              obj=json.load(r)
+            raw=base64.b64decode(obj['content'])
+            git_sha=hashlib.sha1(b'blob '+str(len(raw)).encode()+b'\0'+raw).hexdigest()
+            if git_sha!=sha:
+              raise SystemExit(f'blob mismatch {label}: {git_sha} != {sha}')
+            chunks.append(raw)
+
+          encoded=b''.join(chunks).replace(b'\r',b'').replace(b'\n',b'')
+          try:
+            compressed=base64.b64decode(encoded,validate=True)
+            patch=gzip.decompress(compressed)
+          except Exception as e:
+            raise SystemExit(f'patch decode failed: {e}')
+          if not patch.startswith(b'diff --git '):
+            raise SystemExit('reconstructed payload is not a git patch')
+          Path('/tmp/b0805-24.patch').write_bytes(patch)
+          print({'chunks':len(chunks),'encoded_bytes':len(encoded),'patch_bytes':len(patch),'patch_sha256':hashlib.sha256(patch).hexdigest()})
+          PY
+          git apply --check /tmp/b0805-24.patch
+
+      - name: Apply and validate source
+        run: |
+          git apply /tmp/b0805-24.patch
+          grep -F "const BUILD = 'b0805-24';" baseball3d.html
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>')
+          b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          PY
+          node --check /tmp/baseball3d-main.js
+          for f in _test_harness_20260804.js _test_runner_intent_20260808.js _test_fielding_assignment_20260808.js _test_reach_model_20260808.js _test_defense_action_policy_20260809.js _architecture_guard_20260808.js; do
+            test ! -f "$f" || node --check "$f"
+          done
+          test ! -f _test_batted_ball_integrity_20260809.js || node _test_batted_ball_integrity_20260809.js
+          node _architecture_guard_20260808.js
+          python -m py_compile _ci_browser_regression_20260809.py
+          python _ci_browser_regression_20260809.py
+
+      - name: Squash to one clean commit and push
+        run: |
+          rm -f .b0805_24_payload.* .b0805_24_gz.* .b0805_24_apply.py .b0805_24_*.py
+          rm -f .github/workflows/_temp_export_b0805_24.yml .github/workflows/_apply_b0805_24_finalize.yml
+          git config user.name "ChatGPT"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git reset --soft a6ed22b0da133c00c9120261d7d45847cd37562b
+          git add -A
+          git diff --cached --check
+          git commit -m "fix: preserve batted-ball identity and live-play integrity"
+          git push --force origin HEAD:agent/b0805-24-batted-ball-rundown-integrity
