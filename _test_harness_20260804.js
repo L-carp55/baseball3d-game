@@ -1190,6 +1190,53 @@
     out.test48_走者スライディング={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
+
+  // ===== test49: 三塁ゴロ・一塁走者ありは併殺継続まで比較して二塁封殺 =====
+  (function(){
+    const chk=[];
+    const oldTE=window.throwETAof, oldRE=window.runnerETA, oldRB=window.runnerBackETA,
+          oldTF=window.throwFlightTime, oldAE=window.armEff, oldCA=window.coverArrival,
+          oldDP=window.doublePlayContinuation;
+    try{
+      newGame(); S.outs=0; S.preOuts=0; ball={t:1.0};
+      const third=fielders.find(f=>f.n==='三'), second=fielders.find(f=>f.n==='二'), first=fielders.find(f=>f.n==='一');
+      second.coverBase=2; first.coverBase=1;
+      const batter=makeRunner(0.10,1,0,A.speed(100)); batter.obsDir=1; batter.v=26;
+      const lead=makeRunner(1.30,2,1,A.speed(100)); lead.obsDir=1; lead.v=26;
+      runners=[batter,lead];
+      /* 録画213741型: 一塁は余裕0.7秒、二塁は余裕0秒前後。
+         単発アウトだけなら一塁を選ぶが、二塁→一塁の転送を含めれば二塁が最善。 */
+      window.throwETAof=(f,b)=>b===1?1.25:(b===2?1.55:9);
+      window.runnerETA=(r,b)=>r===batter&&b===1?2.00:(r===lead&&b===2?1.90:9);
+      window.runnerBackETA=()=>9; window.throwFlightTime=()=>0.40;
+      window.armEff=()=>0.80; window.coverArrival=()=>0;
+      let d=chooseThrowTarget(third);
+      chk.push({n:'0死一塁の三塁ゴロは二塁封殺を選ぶ',ok:d.nb===2&&d.reason==='double-play-force-chain'});
+      /* 数値モデルの期待アウト計算はfocused contractで検査。ここでは実ブラウザ上の最終選択を固定する。 */
+
+      S.outs=1; d=chooseThrowTarget(third);
+      chk.push({n:'1死でも併殺で終了可能なら二塁',ok:d.nb===2});
+
+      S.outs=2; d=chooseThrowTarget(third);
+      chk.push({n:'2死では転送価値を足さず確実な一塁',ok:d.nb===1});
+
+      S.outs=0; second.coverBase=null; d=chooseThrowTarget(third);
+      chk.push({n:'二塁カバー不在なら無理に二塁へ投げない',ok:d.nb===1});
+      second.coverBase=2;
+
+      window.doublePlayContinuation=()=>({eligible:false,bonus:0,relayProbability:0,expectedOuts:0});
+      d=chooseThrowTarget(third);
+      chk.push({n:'旧一手読みへ戻すと同じ録画場面で一塁を選ぶ',ok:d.nb===1});
+    }catch(e){chk.push({n:'例外',ok:false,e:e.message});}
+    finally{
+      window.throwETAof=oldTE;window.runnerETA=oldRE;window.runnerBackETA=oldRB;
+      window.throwFlightTime=oldTF;window.armEff=oldAE;window.coverArrival=oldCA;
+      window.doublePlayContinuation=oldDP;ball=null;
+    }
+    const bad=chk.filter(x=>!x.ok);
+    out.test49_先行封殺と併殺継続={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
+  })();
+
   console.log(JSON.stringify(out,null,1));
   return out;
 })();

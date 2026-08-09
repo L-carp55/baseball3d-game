@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-25';
+const BUILD = 'b0805-26';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -123,6 +123,7 @@ function recTick(dt){
       by:throwPlay.thrower?throwPlay.thrower.n:null, kind:throwPlay.kind,
       ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0,
       dr:throwPlay.decisionReason||'', dm:r2(throwPlay.decisionMargin||0), du:r2(throwPlay.decisionUtility||0),
+      de:r2(throwPlay.decisionExpectedOuts||0), dc:r2(throwPlay.decisionContinuationProbability||0),
       ra:throwPlay.rd?throwPlay.rd.actionReason||'':'', rm:throwPlay.rd?r2(throwPlay.rd.actionMargin||0):0,
       rr:throwPlay.rd?r2(throwPlay.rd.actionRisk||0):0,
       ls:throwPlay.lifecycleSource||'legacy', lq:throwPlay.lifecycleSeq||0, lr:throwPlay.lifecycleReason||''}:null,
@@ -145,7 +146,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 de=期待アウト数 dc=併殺転送確率 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -1889,6 +1890,36 @@ function runnerThreatETA(threat){
 function throwThreatValue(base){
   return base===4?1.15:(base===3?0.35:(base===2?0.12:0));
 }
+/* 一塁走者を二塁で封殺した後、一塁へ転送して二つ目のアウトを取れる価値。
+   旧ポリシーは各送球を「この一投で取れるアウト1個」だけで比較していたため、
+   三塁手が二塁で先行走者を十分刺せる場面でも、少し余裕の大きい一塁を選んだ。
+   ここでは二塁封殺の成功確率だけでなく、その受け手から一塁への転送までを同じ
+   時間軸で見積もる。常に二塁へ投げる規則ではなく、二塁カバー不在・封殺が遅い・
+   打者走者が既に一塁へ近い場合は継続価値が小さくなり、確実な一塁が残る。 */
+function doublePlayContinuation(f,threat,leadETA,leadOutProbability){
+  const none={eligible:false,bonus:0,relayProbability:0,expectedOuts:leadOutProbability};
+  if(!threat || threat.base!==2 || !threat.forced || threat.runner.origin!==1) return none;
+  if(!S || S.outs>=2 || (ball && Number.isFinite(ball.t) && ball.t>=2.2)) return none;
+  const batter=runners.find(r=>r.origin===0 && !r.out && r.p<1-1e-9);
+  if(!batter) return none;
+  const receiver=fielders.find(x=>x!==f && x.coverBase===2);
+  if(!receiver || leadOutProbability<0.12) return none;
+  const from=throwPoint(2), to=throwPoint(1), d=Math.hypot(to[0]-from[0],to[1]-from[1]);
+  const transfer=A.transfer(receiver.fld,receiver.cat)*0.75+0.16;
+  const physical=transfer+throwFlightTime(d,armEff(receiver))+0.28+0.12;
+  /* 一塁カバーがまだ到着していない場合だけ、二塁への第一送球中に消化できなかった
+     待ち時間を足す。すでに一塁へ入っていれば0。 */
+  const firstCoverWait=Math.max(0,coverArrival(1,receiver)-leadETA);
+  const relayETA=Math.max(physical,firstCoverWait+0.12);
+  const batterETA=runnerETA(batter,1);
+  const relayMargin=batterETA-(leadETA+relayETA);
+  const relayProbability=clamp(0.50+0.45*relayMargin,0.02,0.98);
+  /* 期待できる二つ目のアウト + 先行走者を消す小さな価値。後者は転送が僅かに
+     間に合わない場合でも、同程度の成功率なら二塁封殺を優先する野球判断を表す。 */
+  const bonus=leadOutProbability*(relayProbability+0.18);
+  return {eligible:true,bonus,relayProbability,
+    expectedOuts:leadOutProbability*(1+relayProbability),relayMargin,relayETA};
+}
 function throwActionForThreat(f,threat,order){
   const te=throwETAof(f,threat.base), re=runnerThreatETA(threat);
   const margin=re-te-(threat.base===4?0.25:0.05);
@@ -1896,10 +1927,14 @@ function throwActionForThreat(f,threat,order){
   /* margin=0を五分、±約1.1秒でほぼ0/1になる連続評価。ホームはアウトに加え
      失点阻止価値があるため、少しだけ成功率が低くても比較対象に残す。 */
   const outProbability=clamp(0.50+0.45*margin,0.02,0.98);
-  const utility=outProbability*(1+value)+0.30*value+(threat.forced?0.05:0);
+  const continuation=doublePlayContinuation(f,threat,te,outProbability);
+  const utility=outProbability*(1+value)+0.30*value+(threat.forced?0.05:0)+continuation.bonus;
   return {kind:'throw',nb:threat.base,runner:threat.runner,margin,utility,
-    outProbability,priority:threat.base,order:order||0,
-    reason:threat.dir<0?'return-threat':(threat.forced?'forced-threat':'advance-threat')};
+    outProbability,expectedOuts:continuation.expectedOuts,
+    continuationProbability:continuation.relayProbability,
+    priority:threat.base,order:order||0,
+    reason:continuation.eligible?'double-play-force-chain':
+      (threat.dir<0?'return-threat':(threat.forced?'forced-threat':'advance-threat'))};
 }
 function containmentBaseForTrailingRunner(){
   const trail=runners.filter(r=>!r.out && r.p<2.95)
@@ -1914,7 +1949,7 @@ function chooseThrowTarget(f){
   const best=selectDefenseAction(actions);
   const isOF=Math.hypot(f.cx,f.cy)>=158;
   if(best && (!isOF || best.margin>=-0.75)){
-    return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason};
+    return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason,expectedOuts:best.expectedOuts||best.outProbability||0,continuationProbability:best.continuationProbability||0};
   }
   /* 外野から全ての直接勝負が大幅に手遅れなら、遅れて追い掛けず後続走者の
      次塁を封じる。これは「実在するアウト候補」を評価した後だけ使う第二目的。 */
@@ -1924,7 +1959,7 @@ function chooseThrowTarget(f){
       return {nb:contain,margin:best?best.margin:-99,utility:best?best.utility:0,
         reason:'containment'};
   }
-  if(best) return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason};
+  if(best) return {nb:best.nb,margin:best.margin,utility:best.utility,reason:best.reason,expectedOuts:best.expectedOuts||best.outProbability||0,continuationProbability:best.continuationProbability||0};
   return {nb:'P',margin:0,utility:0,reason:'no-visible-threat'};
 }
 /* ThrowDecisionの唯一の入口。捕球時・リリース時・追加送球を同じ可視状態評価へ通す。
@@ -1954,7 +1989,7 @@ function decideThrowTarget(f,ctx){
     nb=4; source='auto-home-live'; d={...d,reason:'home-live-fallback'};
   }
   if(nb==='P' && o.fallbackTarget!=null){ nb=o.fallbackTarget; source='auto-fallback'; d={...d,reason:'explicit-fallback'}; }
-  return {nb,source,locked:false,reason:d.reason||'auto',margin:d.margin||0,utility:d.utility||0};
+  return {nb,source,locked:false,reason:d.reason||'auto',margin:d.margin||0,utility:d.utility||0,expectedOuts:d.expectedOuts||0,continuationProbability:d.continuationProbability||0};
 }
 function setThrowTarget(T,nb,source,meta){
   if(!T) return false;
@@ -1962,6 +1997,8 @@ function setThrowTarget(T,nb,source,meta){
     T.decisionReason=meta.reason||'';
     T.decisionMargin=Number.isFinite(meta.margin)?meta.margin:0;
     T.decisionUtility=Number.isFinite(meta.utility)?meta.utility:0;
+    T.decisionExpectedOuts=Number.isFinite(meta.expectedOuts)?meta.expectedOuts:0;
+    T.decisionContinuationProbability=Number.isFinite(meta.continuationProbability)?meta.continuationProbability:0;
   }
   if(T.target===nb){ if(source) T.decisionSource=source; return false; }
   T.target=nb;
@@ -2055,6 +2092,7 @@ function beginThrowPhase(f, kind, award, flyLead){
     thrower:f, kind, award,
     target:decision.nb, decisionSource:decision.source, decisionSeq:1,
     decisionReason:decision.reason||'', decisionMargin:decision.margin||0, decisionUtility:decision.utility||0,
+    decisionExpectedOuts:decision.expectedOuts||0, decisionContinuationProbability:decision.continuationProbability||0,
     relayed:false,
     fieldT: ball.t
   };

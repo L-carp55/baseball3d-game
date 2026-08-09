@@ -12,6 +12,7 @@ name: Baseball3D regression
       - "_test_fielding_assignment_20260808.js"
       - "_test_reach_model_20260808.js"
       - "_test_defense_action_policy_20260809.js"
+      - "_test_force_chain_decision_20260809.js"
       - "_architecture_guard_20260808.js"
       - "_ci_browser_regression_20260809.py"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
@@ -25,6 +26,7 @@ name: Baseball3D regression
       - "_test_fielding_assignment_20260808.js"
       - "_test_reach_model_20260808.js"
       - "_test_defense_action_policy_20260809.js"
+      - "_test_force_chain_decision_20260809.js"
       - "_architecture_guard_20260808.js"
       - "_ci_browser_regression_20260809.py"
       - "ARCHITECTURE_REMEDIATION_20260808.md"
@@ -46,7 +48,7 @@ jobs:
           src=Path('baseball3d.html').read_text(encoding='utf-8')
           a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
           Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
-          assert "const BUILD = 'b0805-25';" in src
+          assert "const BUILD = 'b0805-26';" in src
           PY
           python -m py_compile _ci_browser_regression_20260809.py
           node --check /tmp/baseball3d-main.js
@@ -56,6 +58,7 @@ jobs:
           node --check _test_fielding_assignment_20260808.js
           node --check _test_reach_model_20260808.js
           node --check _test_defense_action_policy_20260809.js
+          node --check _test_force_chain_decision_20260809.js
           node --check _architecture_guard_20260808.js
           node _architecture_guard_20260808.js
           node _test_runner_intent_20260808.js
@@ -63,5 +66,6 @@ jobs:
           node _test_fielding_assignment_20260808.js
           node _test_reach_model_20260808.js
           node _test_defense_action_policy_20260809.js
+          node _test_force_chain_decision_20260809.js
       - name: Full browser baseline and behavioral mutations
         run: python _ci_browser_regression_20260809.py
