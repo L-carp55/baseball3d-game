@@ -1,0 +1,32 @@
+name: Temporary source export b0805-25 v2
+
+on:
+  push:
+    branches:
+      - "agent/export-b0805-25-source-v2"
+    paths:
+      - ".github/workflows/_temp_export_b0805_25_v2.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/upload-artifact@v4
+        with:
+          name: baseball3d-b0805-25-source-v2
+          path: |
+            baseball3d.html
+            _test_harness_20260804.js
+            _test_runner_intent_20260808.js
+            _test_runner_controls_sliding_20260809.js
+            _test_defense_action_policy_20260809.js
+            _test_fielding_assignment_20260808.js
+            _test_reach_model_20260808.js
+            _architecture_guard_20260808.js
+            _ci_browser_regression_20260809.py
+            .github/workflows/baseball3d-regression.yml
+            .github/workflows/baseball3d-manual-runner-regression.yml
