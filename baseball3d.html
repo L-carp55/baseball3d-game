@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-28';
+const BUILD = 'b0805-29';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -2233,6 +2233,21 @@ function tagNearbyRunner(holder){
   }
   return null;
 }
+/* ボールを確保して送球準備へ入った野手は、直前の打球追跡目標を引きずらない。
+   はじいた球を拾い直した後などに intercept-replan の古い目標へ走り続けると、
+   ボールを手に持ったまま後退しながら送球する。transfer は「足を止めて送球姿勢を作る」段階で、
+   自分で塁を踏む step や挟殺で詰める approach は別段階なので、ここでは止めない。 */
+function prepareThrowerFootwork(T){
+  if(!T || T.stage!=='transfer' || !T.thrower) return false;
+  const f=T.thrower;
+  setTarget(f,f.cx,f.cy);          // 打球追跡・中継位置などの古い移動目標を破棄
+  f.v=0;                           // 送球準備中に旧目標へ惰性移動しない
+  const p=throwPoint(T.target);
+  const dx=p[0]-f.cx, dy=p[1]-f.cy;
+  if(Math.hypot(dx,dy)>0.25) f.face=Math.atan2(dx,dy); // 送球先へ身体を向ける
+  return true;
+}
+
 function updateThrowPhase(dt){
   const T=throwPlay;
   T.t+=dt;
@@ -2277,6 +2292,9 @@ function updateThrowPhase(dt){
     if(requestPlayConclusion('settled-return')) return;
   }
   updateRunners(dt);
+  /* moveFielders より先に保球者を固定する。後から止めると1フレームだけ古い
+     intercept 目標へ動き、録画上でも後退が残る。 */
+  if(T.stage==='transfer') prepareThrowerFootwork(T);
   moveFielders(dt,true);
   /* ボールを持っている野手は誰か。持っている間はいつでもタッチが成立する。 */
   const holder = (T.stage==='transfer'||T.stage==='step'||T.stage==='approach') ? T.thrower
@@ -2316,6 +2334,8 @@ function updateThrowPhase(dt){
       }
       setThrowTarget(T,liveDecision.nb,'breakaway-live-'+liveDecision.source,liveDecision);
     }
+    /* transfer 中に送球先が変わった場合も、そのフレームで身体の向きを更新する。 */
+    prepareThrowerFootwork(T);
     /* 自分で塁を踏むなら持ち替えは要らない（握り直さず、そのまま踏みに行く）。
        持ち替えを待ってから歩き出していたため、投げるより遅くなってセーフになっていた。
        カバーがすでに塁に入っているなら、自分で行かずに投げる。 */
