@@ -48,6 +48,7 @@ const update=extract('updateThrowPhase');
 ok(update.includes("if(T.kind==='breakaway')"),'breakaway is not re-evaluated while pitcher holds ball');
 ok(update.includes('decideBreakawayTarget(T.thrower,T.target)'),'pitcher cannot retarget among bases');
 const flight=extract('stepFlight');
+// Direction hysteresis applies to rolling handoffs; wall reflections may reverse velocity inside one physics frame.
 ok(flight.includes('const preApproachDot='),'rolling handoff lacks pre-step direction hysteresis');
 ok(flight.includes('!approaching && preApproachDot<=0'),'rolling handoff can switch during the approaching frame');
 console.log(JSON.stringify({verdict:'PASS',ground,pickoffReceive:pick,relayReceive:relay,throwReceive:recv},null,2));
