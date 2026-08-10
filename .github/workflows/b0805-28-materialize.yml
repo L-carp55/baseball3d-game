@@ -7,6 +7,7 @@ name: Materialize b0805-28
     paths:
       - "scripts/apply_b0805_28.py"
       - "_test_breakaway_transfer_context_20260810.js"
+      - "_test_force_chain_decision_20260809.js"
       - ".github/workflows/b0805-28-materialize.yml"
   workflow_dispatch:
 
