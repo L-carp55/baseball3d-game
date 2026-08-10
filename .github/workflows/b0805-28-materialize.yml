@@ -6,6 +6,7 @@ name: Materialize b0805-28
       - "agent/b0805-28-breakaway-transfer-context"
     paths:
       - "scripts/apply_b0805_28.py"
+      - "scripts/apply_b0805_28_handoff_hysteresis.py"
       - "_test_breakaway_transfer_context_20260810.js"
       - "_test_force_chain_decision_20260809.js"
       - ".github/workflows/b0805-28-materialize.yml"
@@ -23,10 +24,13 @@ jobs:
         with:
           ref: "agent/b0805-28-breakaway-transfer-context"
           fetch-depth: 0
-      - name: Apply b0805-28 source transformation
+      - name: Apply b0805-28 source transformations
         run: |
-          python -m py_compile scripts/apply_b0805_28.py
-          python scripts/apply_b0805_28.py
+          python -m py_compile scripts/apply_b0805_28.py scripts/apply_b0805_28_handoff_hysteresis.py
+          if grep -q "const BUILD = 'b0805-26';" baseball3d.html; then
+            python scripts/apply_b0805_28.py
+          fi
+          python scripts/apply_b0805_28_handoff_hysteresis.py
       - name: Static and focused validation
         run: |
           python - <<'PY'
@@ -35,6 +39,7 @@ jobs:
           a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
           Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
           assert "const BUILD = 'b0805-28';" in src
+          assert 'const preApproachDot=' in src
           PY
           node --check /tmp/baseball3d-main.js
           node --check _test_breakaway_transfer_context_20260810.js
