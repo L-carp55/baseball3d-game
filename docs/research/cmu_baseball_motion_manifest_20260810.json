@@ -1,0 +1,180 @@
+{
+  "schema_version": "cmu-baseball-motion-manifest/v1",
+  "status": "qualified",
+  "created_at": "2026-08-11T00:20:41+09:00",
+  "qualification_completed_at": "2026-08-11T00:23:10+09:00",
+  "scope": {
+    "subject_id": "124",
+    "included_trial_ids": [
+      "124-01",
+      "124-02",
+      "124-07"
+    ],
+    "excluded_trials": "All other CMU trials, including 124-08, are outside this qualification task.",
+    "c3d": {
+      "fetched": false,
+      "reason": "ASF plus AMC contained enough skeletal information for the M0 source-qualification questions."
+    },
+    "openbiomechanics_raw_or_full_signal": {
+      "fetched": false,
+      "reason": "Explicitly outside this narrow CMU qualification scope."
+    }
+  },
+  "official_source": {
+    "database_url": "https://mocap.cs.cmu.edu/",
+    "subject_url": "https://mocap.cs.cmu.edu/search.php?subjectnumber=124",
+    "source_terms_url": "https://mocap.cs.cmu.edu/",
+    "terms_verified_at": "2026-08-11T00:20:41+09:00",
+    "terms_paraphrase": "The official database page says the data are free for use, may be included in commercially sold products, may not be resold directly even in converted form, and requests acknowledgement for published results.",
+    "requested_acknowledgement": "The data used in this project was obtained from mocap.cs.cmu.edu. The database was created with funding from NSF EIA-0196217."
+  },
+  "sampling_rate_hz": 120,
+  "pre_download_manifest": {
+    "saved_at": "2026-08-11T00:20:41+09:00",
+    "head_checked_at": "2026-08-11T00:20:41+09:00",
+    "method": "HTTPS HEAD requests only; no motion payload bytes were retrieved before this manifest was saved.",
+    "skeleton": {
+      "filename": "124.asf",
+      "format": "ASF",
+      "official_url": "https://mocap.cs.cmu.edu/subjects/124/124.asf",
+      "content_length_bytes": 7248,
+      "etag": "1c50-4127f97c10ac0",
+      "last_modified": "Fri, 28 Apr 2006 15:45:23 GMT",
+      "dependency": "Shared Subject #124 calibrated skeleton required to interpret every selected AMC motion."
+    },
+    "trials": [
+      {
+        "trial_id": "124-01",
+        "description": "Baseball Pitch",
+        "filename": "124_01.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_01.amc",
+        "content_length_bytes": 510538,
+        "etag": "7ca4a-416bb237e0740",
+        "last_modified": "Wed, 21 Jun 2006 12:28:37 GMT"
+      },
+      {
+        "trial_id": "124-02",
+        "description": "Baseball Pitch",
+        "filename": "124_02.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_02.amc",
+        "content_length_bytes": 1046974,
+        "etag": "ff9be-416bb237e0740",
+        "last_modified": "Wed, 21 Jun 2006 12:28:37 GMT"
+      },
+      {
+        "trial_id": "124-07",
+        "description": "Baseball Swing",
+        "filename": "124_07.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_07.amc",
+        "content_length_bytes": 1032910,
+        "etag": "fc2ce-416bb238d4980",
+        "last_modified": "Wed, 21 Jun 2006 12:28:38 GMT"
+      }
+    ],
+    "total_expected_bytes": 2597670,
+    "large_download_guard": "PASS: the four-file ASF plus AMC set is about 2.60 MB, so it is below the stop-before-large-download condition."
+  },
+  "payload_retrieval": {
+    "status": "completed",
+    "retrieved_at": "2026-08-11T00:23:10+09:00",
+    "method": "Direct retrieval from the canonical official URLs after the saved pre-download manifest.",
+    "raw_files_committed": false,
+    "raw_files_repository_path": null,
+    "raw_data_handling": "Downloaded payloads were stored only in a non-repository temporary location for local parsing and visual inspection; they were not copied into this Git worktree.",
+    "files": [
+      {
+        "filename": "124.asf",
+        "format": "ASF",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124.asf",
+        "bytes_downloaded": 7248,
+        "sha256": "b0e6a62b7e151200497b8bbcf42d0e95800decabec9254f8653e57dcde45dd45",
+        "sampling_rate_hz": null,
+        "skeleton_or_calibration_dependency": "This is the shared skeleton/calibration dependency for all selected AMC files."
+      },
+      {
+        "trial_id": "124-01",
+        "filename": "124_01.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_01.amc",
+        "bytes_downloaded": 510538,
+        "sha256": "7fd098ab1b535c38a3a6ae7c82f7c87299e177ce665dd65fa19db110e22f0857",
+        "sampling_rate_hz": 120,
+        "skeleton_or_calibration_dependency": "Requires 124.asf.",
+        "parsed_frame_count": 643,
+        "verdict": "APPROVE_FOR_M1"
+      },
+      {
+        "trial_id": "124-02",
+        "filename": "124_02.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_02.amc",
+        "bytes_downloaded": 1046974,
+        "sha256": "26490cc86d6ce41416355ab320a6d6818142521fbdc28c6d9579c2df5b0f89d2",
+        "sampling_rate_hz": 120,
+        "skeleton_or_calibration_dependency": "Requires 124.asf.",
+        "parsed_frame_count": 1319,
+        "verdict": "CONDITIONAL"
+      },
+      {
+        "trial_id": "124-07",
+        "filename": "124_07.amc",
+        "format": "AMC",
+        "official_url": "https://mocap.cs.cmu.edu/subjects/124/124_07.amc",
+        "bytes_downloaded": 1032910,
+        "sha256": "4d9773480a816e24c272ba9414c6bd407d2768cedb72698287ba47b3709ff36f",
+        "sampling_rate_hz": 120,
+        "skeleton_or_calibration_dependency": "Requires 124.asf.",
+        "parsed_frame_count": 1297,
+        "verdict": "CONDITIONAL_FOR_LATER_M2_ONLY"
+      }
+    ]
+  },
+  "local_analysis_tool": {
+    "path": "tools/motion/inspect_cmu_asf_amc.py",
+    "version": "cmu-asf-amc-fk-v1",
+    "sha256": "447e28cb2b1ac56b1da44c25fe829426e271877b496dcd1c35cf231de3339cb2",
+    "purpose": "Parse the shared ASF plus selected AMC files with forward kinematics, inspect aggregate motion measures, and make local contact sheets without exporting raw motion samples.",
+    "raw_data_embedded": false,
+    "derived_preview_committed": false
+  },
+  "qualification_selection": {
+    "m1_source_gate": "GO_WITH_124-01_ONLY",
+    "124-01": {
+      "laterality": "provisional_right_mirrorable",
+      "visual_window_one_based_frames": [
+        1,
+        410
+      ],
+      "release_proxy_one_based_frames": [
+        293,
+        302
+      ]
+    },
+    "124-02": {
+      "laterality": "provisional_right_mirrorable",
+      "selected_second_delivery_one_based_frames": [
+        720,
+        1079
+      ],
+      "release_proxy_one_based_frames": [
+        915,
+        921
+      ]
+    },
+    "124-07": {
+      "laterality": "indeterminate",
+      "selected_first_swing_one_based_frames": [
+        119,
+        472
+      ],
+      "contact_proxy_one_based_frames": [
+        317,
+        328
+      ]
+    },
+    "event_label_limit": "All baseball event times above are inferred local kinematic/visual proxies, not CMU-labelled baseball events."
+  }
+}
