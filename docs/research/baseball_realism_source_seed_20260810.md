@@ -4,6 +4,9 @@ Date: 2026-08-10
 Status: browser-GPT provisional integration seed
 Base: `agent/b0805-29-possession-footwork` / BUILD `b0805-29`
 Umbrella issue: #24
+Canonical Codex task: `docs/research/CODEX_BASEBALL3D_REALISM_RESEARCH_TASK_20260810.md`
+
+> **Project boundary:** This is the `baseball3d-game` 3D game-engine project. It is NOT the separate PowerPro player-rating/査定 project. Do not mix player ability-rating research into this workstream.
 
 ## Purpose
 
