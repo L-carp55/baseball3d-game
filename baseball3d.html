@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-26';
+const BUILD = 'b0805-28';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -124,6 +124,7 @@ function recTick(dt){
       ds:throwPlay.decisionSource||'legacy', dq:throwPlay.decisionSeq||0,
       dr:throwPlay.decisionReason||'', dm:r2(throwPlay.decisionMargin||0), du:r2(throwPlay.decisionUtility||0),
       de:r2(throwPlay.decisionExpectedOuts||0), dc:r2(throwPlay.decisionContinuationProbability||0),
+      pc:throwPlay.transferContext||'', pt:r2(throwPlay.transfer||0),
       ra:throwPlay.rd?throwPlay.rd.actionReason||'':'', rm:throwPlay.rd?r2(throwPlay.rd.actionMargin||0):0,
       rr:throwPlay.rd?r2(throwPlay.rd.actionRisk||0):0,
       ls:throwPlay.lifecycleSource||'legacy', lq:throwPlay.lifecycleSeq||0, lr:throwPlay.lifecycleReason||''}:null,
@@ -146,7 +147,7 @@ function recSave(all){
   if(!data.length){ setMsg('記録がありません','','#ff6b5e'); return; }
   const blob = new Blob([JSON.stringify({
     版:'baseball3d 記録 v1 '+BUILD, 保存日時:new Date().toISOString(),
-    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 de=期待アウト数 dc=併殺転送確率 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
+    見方:'f=0.1秒ごとの状態 / run="元の塁:今位置→目標" X=アウト S/Z/C=進塁 X/A/D=帰塁 R=帰塁義務 T=タッチアップ / intent="元の塁:決定元#更新番号:d実移動方向 L=手動固定" / slide="元の塁:feet|head@到達塁#番号" / thr.dr=送球判断理由 dm=時間差 du=効用 de=期待アウト数 dc=併殺転送確率 pc=保球文脈 pt=送球準備秒 / ball.cm=捕球動作 / thr.ra=挟殺行動理由 rm=時間差 rr=他走者リスク / fld="位置x,y" *=打球担当 c1=一塁カバー / role="野手:役割変更元#更新番号"',
     プレー数:data.length, plays:data
   }, null, 1)], {type:'application/json'});
   const a=document.createElement('a');
@@ -880,6 +881,46 @@ const A = {
   power: v => 0.85 + 0.0023*v,            // 打球初速の係数 0.85〜1.08（実測: 平均89mph・最速122mph）
   loft:  v => [3,8,12,16][clamp(v,1,4)-1]    // 弾道1〜4 → 打球角度の基準（実測の平均は約12度）
 };
+
+/* 送球準備時間は「ボールをどう手に入れたか」で分ける。
+   内野ゴロは打球を処理し、握り替え、送球先を選び、体勢を立て直すので守備力が強く効く。
+   一方、けん制・挟殺・中継などの正確な送球を胸元で受けた後は、すでに捕球が完了しており、
+   守備範囲の能力で1秒近く待たせない。捕球と送球精度だけを小さく効かせる。 */
+function transferTime(f, context){
+  const fld=clamp((f&&f.fld)||60,1,100)/100;
+  const cat=clamp((f&&f.cat)||60,1,100)/100;
+  const acc=clamp((f&&f.acc)||60,1,100)/100;
+  switch(context){
+    case 'pitcher-hold':       return 0.14 + 0.06*(1-acc);
+    case 'pickoff-receive':    return 0.10 + 0.07*(1-cat) + 0.06*(1-acc);
+    case 'rundown-receive':    return 0.11 + 0.08*(1-cat) + 0.06*(1-acc);
+    case 'relay-receive':      return 0.16 + 0.09*(1-cat) + 0.07*(1-acc);
+    case 'throw-receive':      return 0.14 + 0.10*(1-cat) + 0.08*(1-acc);
+    case 'double-play-pivot':  return 0.20 + 0.10*(1-fld) + 0.08*(1-cat) + 0.06*(1-acc);
+    case 'held-ball':          return 0.10 + 0.05*(1-acc);
+    case 'batted-air':         return 0.42 + 0.18*(1-fld) + 0.18*(1-cat);
+    case 'batted-ground':
+    default:                    return A.transfer((f&&f.fld)||60,(f&&f.cat)||60);
+  }
+}
+function setTransferContext(T,f,context,jitter){
+  if(!T||!f) return 0;
+  T.transferContext=context;
+  f.possessionContext=context;
+  T.transfer=transferTime(f,context)+(jitter?rnd(0,jitter):0);
+  return T.transfer;
+}
+function receiveTransferContext(T){
+  if(!T) return 'throw-receive';
+  if(T.kind==='breakaway'||T.kind==='pickoff') return 'pickoff-receive';
+  if(T.stage==='rundown'||T.decisionSource==='rundown-turn') return 'rundown-receive';
+  if(T.relayTo!=null) return 'relay-receive';
+  return 'throw-receive';
+}
+function transferContextForBattedBall(kind){
+  return kind==='fly' || (ball && !ball.landed) ? 'batted-air' : 'batted-ground';
+}
+
 /* 打球への反応時間。グラブの届く4.5ftぶんを守備範囲に足した（実際の捕球判定と同じ物差しに
    したため）ぶん、走り出しを遅らせて全体の均衡を戻している。 */
 /* ACC_T=打者が打席から走り出す時の加速時間（実測の本塁→一塁に合わせて1.90秒）。
@@ -977,7 +1018,7 @@ function buildFielders(team){
     return {n:p.pos, name:p.n, x:h.x, y:h.y,
       sp:A.speed(p.走)*(FIELD_SP[p.pos]||0.88), zone:A.zone(p.守), arm:A.arm(p.肩), fld:p.守, cat:p.捕, acc:(p.送!=null?p.送:60),
       cx:h.x, cy:h.y, tx:h.x, ty:h.y, primary:false, coverBase:null,
-      roleSource:'init', roleSeq:0, run:0, face:0, v:0};
+      roleSource:'init', roleSeq:0, run:0, face:0, v:0, possessionContext:'none'};
   });
 }
 const LINEUP = {
@@ -1736,7 +1777,9 @@ function throwETAof(f, b){
   const p=throwPoint(b);
   const d=Math.hypot(p[0]-f.cx, p[1]-f.cy);
   const reach=throwSpeed(armEff(f), 200), maxD=reach*reach/32.2*0.92;
-  const transfer=A.transfer(f.fld,f.cat);
+  const ctx=(throwPlay&&throwPlay.thrower===f&&throwPlay.transferContext)
+    ||f.possessionContext||'batted-ground';
+  const transfer=transferTime(f,ctx);
   let t;
   if(d>maxD){                                  // 肩が届かない＝中継が入る
     const d1=maxD*0.62;
@@ -1905,7 +1948,7 @@ function doublePlayContinuation(f,threat,leadETA,leadOutProbability){
   const receiver=fielders.find(x=>x!==f && x.coverBase===2);
   if(!receiver || leadOutProbability<0.12) return none;
   const from=throwPoint(2), to=throwPoint(1), d=Math.hypot(to[0]-from[0],to[1]-from[1]);
-  const transfer=A.transfer(receiver.fld,receiver.cat)*0.75+0.16;
+  const transfer=transferTime(receiver,'double-play-pivot');
   const physical=transfer+throwFlightTime(d,armEff(receiver))+0.28+0.12;
   /* 一塁カバーがまだ到着していない場合だけ、二塁への第一送球中に消化できなかった
      待ち時間を足す。すでに一塁へ入っていれば0。 */
@@ -2005,6 +2048,75 @@ function setThrowTarget(T,nb,source,meta){
   T.decisionSource=source||'decision'; T.decisionSeq=(T.decisionSeq||0)+1;
   return true;
 }
+
+/* 投球前の早出しは通常の「けん制」ではなく、投手がボールを持ったままのライブな飛び出し。
+   投手は元の塁へ固定せず、現在の走者の位置と進行方向から一〜本塁のどこへでも投げる。 */
+function breakawayFallbackTarget(r){
+  if(!r) return 'P';
+  const dir=runnerObservedDir(r);
+  if(dir<0) return clamp(Math.floor(r.p+1e-9),1,4);
+  if(dir>0) return clamp(Math.ceil(r.p-1e-9),1,4);
+  return clamp(r.origin,1,4);
+}
+function activeBreakawayRunner(){
+  /* jumped は『このプレーを始めた印』であり、塁に着いた後も残る。
+     現在も塁間にいる／動いている／次塁への未完の命令がある走者だけをライブとする。 */
+  return runners.filter(r=>{
+      if(r.out || r.p>=4-1e-9) return false;
+      const offBase=Math.abs(r.p-Math.round(r.p))>=0.02;
+      const moving=runnerObservedDir(r)!==0 || Math.abs((r.goal??r.p)-r.p)>=0.02;
+      return offBase || moving;
+    })
+    .sort((a,b)=>{
+      const ah=(a.p>3&&runnerObservedDir(a)>0)?10:0;
+      const bh=(b.p>3&&runnerObservedDir(b)>0)?10:0;
+      return (bh+b.p)-(ah+a.p);
+    })[0]||null;
+}
+function decideBreakawayTarget(f,currentTarget){
+  const live=activeBreakawayRunner();
+  if(!live) return {nb:'P',source:'breakaway-settled',reason:'all-runners-settled',margin:0,utility:0};
+  const d=decideThrowTarget(f,{kind:'live',homeIfAdvancing:true,
+    fallbackTarget:breakawayFallbackTarget(live),currentTarget,
+    manualTarget:(!isPlayerBatting()?manualThrow:null)});
+  return {...d,source:d.source==='auto'?'breakaway-auto':d.source};
+}
+function continueBreakaway(holder,reason){
+  const T=throwPlay;
+  const live=activeBreakawayRunner();
+  if(!live || baseOuts()+countOuts()>=3){
+    T.stealText=T.stealText||'飛び出しから戻ってセーフ';
+    return concludeSteal();
+  }
+  const d=decideBreakawayTarget(holder,T.target);
+  if(d.nb==='P'){
+    T.stealText=T.stealText||'飛び出しから戻ってセーフ';
+    return concludeSteal();
+  }
+  T.thrower=holder; T.receiver=null; T.relayed=false;
+  T.stage='transfer'; T.t=0; T.stepChecked=false;
+  setTransferContext(T,holder,'pickoff-receive',0.04);
+  setThrowTarget(T,d.nb,'breakaway-continue-'+(reason||d.source),d);
+  setMsg('飛び出しが続く！','','#ffc23d');
+}
+function judgeBreakawayAtBase(b){
+  const T=throwPlay, holder=T.receiver||T.thrower;
+  const forward=runners.filter(r=>!r.out && r.p<b-0.01 && r.p>b-1.001 && runnerObservedDir(r)>0)
+    .sort((a,c)=>c.p-a.p)[0];
+  const backward=runners.filter(r=>!r.out && r.p>b+0.01 && r.p<b+1.001 && runnerObservedDir(r)<0)
+    .sort((a,c)=>a.p-c.p)[0];
+  const cand=forward||backward;
+  if(cand){
+    const eta=forward?runnerETA(cand,b):runnerBackETA({...cand,goal:b});
+    if(eta>0.02){
+      markOut(cand,'tag');
+      T.stealText='飛び出しアウト！';
+      if(baseOuts()+countOuts()>=3) return concludeSteal();
+    }
+  }
+  return continueBreakaway(holder,'base-'+b);
+}
+
 /* その走者が「送球に勝てる」一番先の塁。塁打数を先に決めて配るのではなく、
    実際の足と実際の送球の速さを比べて決める。
    以前は打球の回収にかかった秒数だけで塁打数を決め、その塁までは無条件セーフにしていた。
@@ -2087,8 +2199,9 @@ function beginThrowPhase(f, kind, award, flyLead){
     stage:'transfer', t:0,
     /* 持ち替え時間 = 守備力（捕ってから投げるまでの動作の速さ）＋捕球（握り直しの確実さ）。
        捕球が低いと一定確率で捕り損ね、さらに時間がかかる。 */
-    transfer: A.transfer(f.fld,f.cat) + rnd(0,0.10)
+    transfer: transferTime(f,transferContextForBattedBall(kind)) + rnd(0,0.10)
               + (Math.random()<A.fumble(f.cat) ? rnd(0.55,1.15) : 0),
+    transferContext:transferContextForBattedBall(kind),
     thrower:f, kind, award,
     target:decision.nb, decisionSource:decision.source, decisionSeq:1,
     decisionReason:decision.reason||'', decisionMargin:decision.margin||0, decisionUtility:decision.utility||0,
@@ -2096,6 +2209,7 @@ function beginThrowPhase(f, kind, award, flyLead){
     relayed:false,
     fieldT: ball.t
   };
+  f.possessionContext=throwPlay.transferContext;
   ball.vx=0; ball.vy=0; ball.vz=0; ball.z=4.6;
   ball.x=f.cx; ball.y=f.cy;
   S.phase='throwing';
@@ -2182,7 +2296,7 @@ function updateThrowPhase(dt){
       if(nxt && nxt.nb!=='P'){
         T.thrower=holder; setThrowTarget(T,nxt.nb,'post-tag-'+nxt.source); T.stage='transfer'; T.t=0;
         T.stepChecked=false; T.relayed=true;      // 追加の送球（併殺の2つ目）
-        T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+        setTransferContext(T,holder,'held-ball',0.03);
         return;
       }
       /* 打者走者を一塁到達前にアウトにしたものは、触っていても普通のゴロアウト。
@@ -2194,6 +2308,14 @@ function updateThrowPhase(dt){
 
   if(T.stage==='transfer'){
     ball.x=T.thrower.cx; ball.y=T.thrower.cy; ball.z=4.6;
+    if(T.kind==='breakaway'){
+      const liveDecision=decideBreakawayTarget(T.thrower,T.target);
+      if(liveDecision.nb==='P'){
+        T.stealText=T.stealText||'飛び出しから戻ってセーフ';
+        return concludeSteal();
+      }
+      setThrowTarget(T,liveDecision.nb,'breakaway-live-'+liveDecision.source,liveDecision);
+    }
     /* 自分で塁を踏むなら持ち替えは要らない（握り直さず、そのまま踏みに行く）。
        持ち替えを待ってから歩き出していたため、投げるより遅くなってセーフになっていた。
        カバーがすでに塁に入っているなら、自分で行かずに投げる。 */
@@ -2218,7 +2340,7 @@ function updateThrowPhase(dt){
          塁から37ftの時点で投げ、誰も捕れずセンター後方272ftまで転々→三塁走者が生還。
          捕り手の到着が送球の到着に間に合わないうちは持って待ち、1.5秒待っても
          間に合わないならけん制を中止する（投手が持ったまま＝実際の野球と同じ）。 */
-      if(T.kind==='pickoff'){
+      if(T.kind==='pickoff'||T.kind==='breakaway'){
         const tp0=throwPoint(T.target);
         const dist=Math.hypot(tp0[0]-T.thrower.cx, tp0[1]-T.thrower.cy);
         const flight=dist/117;                       // 内野送球80mph≒117ft/s
@@ -2228,7 +2350,7 @@ function updateThrowPhase(dt){
              （実際の野球で投手が偽投だけして戻すのと同じ）。二塁けん制はカバーの
              遊撃手が塁から遠く、待ち時間が最初の実装(1.5秒)を超えることがあり、
              一律中止だと通常配置でも一度も投げられなくなっていた（単体検証で発覚）。 */
-          const tr=runners.find(r=>!r.out && r.origin===T.target);
+          const tr=T.kind==='pickoff'?runners.find(r=>!r.out && r.origin===T.target):null;
           /* ★2026-08-05修理2（Sol Ultra 所見22）: 早出し(jumped)へのけん制は、
              カバーを待っている間に走者が戻り切っても即やめない。
              やめていたため二塁けん制は488回中488回すべて送球前に消え、
@@ -2268,7 +2390,7 @@ function updateThrowPhase(dt){
          ボールを持ったまま走者へ詰め、どちらへ投げても間に合う距離にしてから動く。
          いきなり投げると、投げた反対側の塁へ楽に進まれてしまう。 */
       const trap = trappedRunner(T.thrower);
-      if(trap && T.kind!=='fly' && !T.relayed){
+      if(trap && T.kind!=='fly' && T.kind!=='breakaway' && !T.relayed){
         T.stage='approach'; T.trap=trap; T.t=0; return;
       }
       /* 送球の回数にも上限を置く。走者が塁間を行き来するたびに投げ続け、
@@ -2405,7 +2527,9 @@ function updateThrowPhase(dt){
     if(dRecv<5 && ball.z<=9.5){
       // 受け手が捕って塁に触れるまでの間。送球がずれるほど手間取る
       T.stage='catch'; T.t=0;
-      T.catchDur = rnd(0.04,0.30)*(1.30-armEff(T.thrower))*2.0;
+      const recvCat=clamp((T.receiver&&T.receiver.cat)||60,1,100)/100;
+      T.catchDur = 0.04 + 0.08*(1-recvCat) + (T.chased?0.12:0) + rnd(0,0.04);
+      if(T.receiver) T.receiver.possessionContext=receiveTransferContext(T);
       /* 捕った瞬間に球を手へ固定する。次フレームのタッチ判定→即終了が
          捕球スナップより先に走ると、飛行速度が残ったままプレーが締まり、
          捕った球が幽霊のように飛び続けていた（録画215858「悪送球なのにチェンジ」＝
@@ -2451,7 +2575,7 @@ function updateThrowPhase(dt){
       if(T.relayTo!=null){                 // 中継を受けた野手が本来の塁へ投げ直す
         const nx=T.relayTo; T.relayTo=null; T.thrower=T.receiver||T.thrower;
         setThrowTarget(T,nx,'relay-release'); T.stage='transfer'; T.t=0;
-        T.transfer=A.transfer(T.thrower.fld,T.thrower.cat)*0.7+0.12;
+        setTransferContext(T,T.thrower,'relay-receive',0.04);
         return;
       }
       /* 受け手がまだ塁に着いていなければ、着くまでアウトにしない。
@@ -2701,7 +2825,7 @@ function endRundown(text,color){
     const holder = (T.rd && T.rd.holder) || T.receiver || T.thrower;
     T.rd=null; T.thrower=holder; T.receiver=null; T.relayed=true;
     T.stage='transfer'; T.t=0; T.stepChecked=false;
-    T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+    setTransferContext(T,holder,'rundown-receive',0.04);
     setThrowTarget(T,tgtBase,'rundown-turn');
     return;
   }
@@ -2725,7 +2849,7 @@ function concludeOrChaseHome(){
     const decision=decideThrowTarget(holder,{kind:'live',homeIfAdvancing:true,fallbackTarget:fallback});
     T.thrower=holder; T.receiver=null; T.relayed=true;
     T.stage='transfer'; T.t=0; T.stepChecked=false;
-    T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+    setTransferContext(T,holder,'throw-receive',0.04);
     setThrowTarget(T,decision.nb,'return-continue-'+decision.source);
     return;
   }
@@ -2733,6 +2857,7 @@ function concludeOrChaseHome(){
 }
 function judgeAtBase(b){
   const T=throwPlay;
+  if(T.kind==='breakaway') return judgeBreakawayAtBase(b);
   if(T.kind==='pickoff'){
     // 飛び出した走者が塁へ戻れていなければアウト。塁間で捕まったら挟殺へ
     /* 一塁へ牽制したなら一塁走者だけが対象。塁で絞らないと、
@@ -2759,7 +2884,7 @@ function judgeAtBase(b){
         const holder = T.receiver || T.thrower;
         T.thrower=holder; T.receiver=null; T.relayed=false;
         T.stage='transfer'; T.t=0; T.stepChecked=false;
-        T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+        setTransferContext(T,holder,'throw-receive',0.04);
         const nx=decideThrowTarget(holder,{kind:'live',fallbackTarget:Math.min(4,b+1)});
         setThrowTarget(T,nx.nb,'steal-continue-'+nx.source);
         setMsg('走者が次の塁へ！','','#ffc23d');
@@ -2819,7 +2944,7 @@ function judgeAtBase(b){
   // 併殺は「速く捕れた打球」でだけ狙える。中継のひねりぶん持ち替えも遅くなる
   if(outMade && b>=2 && !T.relayed && baseOuts()+countOuts()<3 && br && br.p<1 && T.fieldT<2.2){
     T.relayed=true; T.stage='transfer'; T.t=0;
-    T.transfer=A.transfer(T.thrower.fld,T.thrower.cat)*0.75+0.16; setThrowTarget(T,1,'double-play');
+    setTransferContext(T,T.thrower,'double-play-pivot',0.04); setThrowTarget(T,1,'double-play');
     // 一塁へ投げるのは「今ボールを持っている野手」。塁の近くにいるだけの別人が投げない
     T.thrower = T.receiver || T.thrower;
     ball.x=T.thrower.cx; ball.y=T.thrower.cy;
@@ -2837,7 +2962,7 @@ function judgeAtBase(b){
     if(nxt && nxt.nb!=='P'){
       T.thrower=holder; T.receiver=null; setThrowTarget(T,nxt.nb,'chase-'+nxt.source);
       T.stage='transfer'; T.t=0; T.stepChecked=false; T.relayed=true;
-      T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+      setTransferContext(T,holder,'throw-receive',0.04);
       ball.x=holder.cx; ball.y=holder.cy;
       return;
     }
@@ -2933,7 +3058,7 @@ function concludePlay(force){
         const nxt=decideThrowTarget(holder,{kind:'live',fallbackTarget:fallback});
         T.thrower=holder; T.receiver=null; T.relayed=true;
         T.stage='transfer'; T.t=0; T.stepChecked=false;
-        T.transfer=A.transfer(holder.fld,holder.cat)*0.75+0.16;
+        setTransferContext(T,holder,'throw-receive',0.04);
         setThrowTarget(T,nxt.nb,'conclude-continue-'+nxt.source);
         return;
       }
@@ -3022,7 +3147,7 @@ function concludePlay(force){
     const base = throwPlay.kind==='fly' ? flyOutLabel(throwPlay,nm)
       : (throwPlay.kind==='outfield' ? (HITNAME[brBase]||'ヒット')
       : (throwPlay.kind==='steal' ? '盗塁'
-      : (throwPlay.kind==='pickoff' ? '牽制' : `${nm}ゴロ`)));
+      : (throwPlay.kind==='pickoff' ? '牽制' : (throwPlay.kind==='breakaway' ? '飛び出し' : `${nm}ゴロ`))));
     text = `${base} → ${throwPlay.rdText}`;
     color = throwPlay.rdColor;
   }else{
@@ -3248,6 +3373,12 @@ function shouldWaitForChestCatch(f,b,d2){
   return !b.landed && b.vz<0 && b.z>5.4 && d2<2.5 && still>0.75;
 }
 function stepFlight(dt){
+  /* 担当交代の方向門番は、更新後だけでなく更新開始時にも球が旧担当から
+     遠ざかっていた場合にだけ開く。1フレーム内で担当を通過した瞬間に、
+     更新前はまだ接近中だったのに同じ刻みで担当を替える境界退行を防ぐ。 */
+  const prePrim=ball&&ball.primary;
+  const preApproachDot=(prePrim&&ball)
+    ? (ball.vx*(prePrim.cx-ball.x)+ball.vy*(prePrim.cy-ball.y)) : 0;
   stepBall(ball,dt); ball.t+=dt;
   ball.maxZ=Math.max(ball.maxZ,ball.z);
   /* 着地に時間の条件(t>0.2)を付けない。打点は高さ1.2ft以上なので誤検出の余地はなく、
@@ -3292,7 +3423,8 @@ function stepFlight(dt){
        9.9ft手前を通る0.6秒前に、102ft離れた遊撃手へ交代→三塁手は無役で
        打球と反対方向へ歩き去り、遊撃手が左翼まで追ってヒット）。 */
     const approaching = (ball.vx*(prim.cx-ball.x) + ball.vy*(prim.cy-ball.y)) > 0;
-    if(Math.hypot(ball.x-prim.cx, ball.y-prim.cy) > CATCH_R + 3 && !approaching){
+    if(Math.hypot(ball.x-prim.cx, ball.y-prim.cy) > CATCH_R + 3
+       && !approaching && preApproachDot<=0){
       const plan2 = planPlay(ball, true);          // 今いる場所から測り直す
       if(plan2.f !== prim){
         const handoff=setPrimaryFielder(plan2.f,'rolling-handoff',[plan2.x,plan2.y]);
@@ -3819,28 +3951,29 @@ function callPitch(strike){
   }
   S.phase='msg'; S.timer=0.8; ui();
 }
-/* 牽制。投球前に飛び出した走者を、投手が塁へ投げて刺しにくる。
-   カウントは動かないので、決着したら同じ打者・同じカウントで再開する。 */
-function beginPickoff(){
+/* 投球前に走者が飛び出した。これは通常のけん制ではなく、投手が保球したままのライブプレー。
+   投手は元の塁へ固定せず、走者の現在位置と進行方向から最もアウト価値の高い塁へ投げる。 */
+function beginBreakaway(){
   S.jumpEarly=false;
   const pit = fielders.find(f=>f.n==='投') || fielders[0];
   const jump = runners.filter(r=>!r.out && r.jumped && r.origin<4)
                       .sort((a,b)=>(b.p-b.origin)-(a.p-a.origin))[0];
   if(!jump){ S.phase='windup'; S.timer=0.3; return; }
-  runners.forEach(r=>{ if(r.jumped)
-    setRunnerIntent(r,r.origin,{source:'pickoff-return',force:true,updateAuto:false,cmd:null}); });   // 戻るしかない
-  clearAllCoverRoles('pickoff-reset');
+  clearAllCoverRoles('breakaway-reset');
   const map={1:'一',2:'遊',3:'三',4:'捕'};
   [1,2,3,4].forEach(b=>{ const f=fielders.find(x=>x.n===map[b]);
-    if(f) assignCoverRole(f,b,'pickoff-cover'); });
+    if(f) assignCoverRole(f,b,'breakaway-cover'); });
+  const decision=decideBreakawayTarget(pit,breakawayFallbackTarget(jump));
   ball={x:pit.cx, y:pit.cy, z:4.4, t:0, vx:0, vy:0, vz:0, landed:false, maxZ:0};
-  throwPlay={ stage:'transfer', t:0, transfer:0.18,
-    thrower:pit, kind:'pickoff', award:0, target:jump.origin, decisionSource:'pickoff-fixed', decisionSeq:1, relayed:false, fieldT:0,
-    /* 開始時の飛び出し量を記録する。カバー待ちの間に走者が戻っても、
-       早出しだったけん制は最後まで刺しに行く判断に使う（Sol Ultra 所見22）。 */
-    jumpLead: Math.max(0, jump.p - jump.origin) };
+  throwPlay={ stage:'transfer', t:0,
+    transfer:transferTime(pit,'pitcher-hold'), transferContext:'pitcher-hold',
+    thrower:pit, kind:'breakaway', award:0, target:decision.nb,
+    decisionSource:decision.source, decisionSeq:1, decisionReason:decision.reason||'',
+    decisionMargin:decision.margin||0, decisionUtility:decision.utility||0,
+    relayed:false, fieldT:0, jumpLead:Math.max(0,jump.p-jump.origin) };
+  pit.possessionContext='pitcher-hold';
   S.phase='throwing'; S.fieldView=true; trail=[];
-  setMsg('牽制！','','#ffc23d'); ui();
+  setMsg('飛び出した！','','#ffc23d'); ui();
 }
 /* 捕手から盗塁を刺しに行く送球。打球のプレーとは別に、投球結果の適用を保留して先に決着させる。 */
 function beginStealThrow(pendingStrike){
@@ -3875,13 +4008,13 @@ function concludeSteal(){
     }   // 位置は走って合わせる
     else { r.out=true; r.outKind='tag'; }
   });
-  const text = throwPlay && throwPlay.stealText ? throwPlay.stealText : '盗塁成功！';
+  const text = throwPlay && throwPlay.stealText ? throwPlay.stealText : (throwKind==='breakaway'?'飛び出しから進塁！':'盗塁成功！');
   S.bases=nb; addRuns(runs);
   S.preOuts=0;                       // markOut で S.outs に加算済み
   throwPlay=null; ball=null; S.stealing=false;   // 走者は残して走り切らせる（次の打席で作り直す）
   setMsg(text + (runs?` ${runs}点`:''), '', /失敗/.test(text)?'#95a3b4':'#3fd66a');
   S.lastPlay=text;
-  S.stealAfter = (throwKind==='pickoff') ? 'none' : S.pendingStrike; S.pendingStrike=null;
+  S.stealAfter = (throwKind==='pickoff'||throwKind==='breakaway') ? 'none' : S.pendingStrike; S.pendingStrike=null;
   S.playWait=0; S.quickPlay=false;   // 盗塁は走者が塁に着くまで見せる
   S.phase='play'; S.timer=1.3; ui();
 }
@@ -3907,7 +4040,7 @@ function update(dt){
   switch(S.phase){
     case 'msg': S.timer-=dt; if(S.timer<=0){ setMsg(''); beginAtBatPhase(); } break;
     case 'windup': S.timer-=dt;
-      if(S.jumpEarly) return beginPickoff();          // 投球前に飛び出した＝牽制で刺しにくる
+      if(S.jumpEarly) return beginBreakaway();        // 投球前に飛び出した＝投手保球中のライブプレー
       if(S.timer<=0){ const c=cpuChoosePitch(); launchPitch(c.type,c.nx,c.ny); } break;
     case 'pitch': updatePitch(dt); break;
     case 'flight': updateFlight(dt); break;
@@ -4848,9 +4981,9 @@ function drawRoster(){
     <b style="color:#ffc23d">能力値の効き方</b><br>
     弾道…打球の上がりやすさ（1〜4）　ミート…芯に当たる範囲の広さ　パワー…打球の初速<br>
     走力…塁間を走る速さと守備の足　肩力…送球の初速<br>
-    守備力…守備範囲の広さ＋捕ってから投げるまでの動作の速さ<br>
+    守備力…守備範囲の広さ＋打球を処理して投げるまでの動作の速さ<br>
     捕球…握り直しの速さと、捕り損ねる確率　送球…送球のそれにくさ（低いと悪送球が増える）<br>
-    <span style="color:#e8eef5">持ち替え時間は守備力と捕球の両方で決まります</span>
+    <span style="color:#e8eef5">打球処理は守備力＋捕球、送球の受け直しは捕球＋送球で決まります</span>
     （両方Sで約0.42秒、両方Gだと約0.96秒。さらに捕球が低いと一定確率で捕り損ねて0.5〜1.1秒余計にかかります）</div>`;
   el.innerHTML=h;
 }

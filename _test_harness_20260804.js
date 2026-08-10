@@ -488,7 +488,13 @@
           const dot=(prim&&ball)?(ball.vx*(prim.cx-ball.x)+ball.vy*(prim.cy-ball.y)):0;
           update(1/60);
           const after=ball&&ball.primary?ball.primary.n:null;
-          if(before&&after&&before!==after&&dot>0) switchedWhileApproaching=true;
+          const afterF=ball&&ball.primary;
+          const afterRole=afterF&&afterF.roleSource;
+          /* 壁反射では1フレーム内で球速方向が物理的に反転するため、更新前dot>0でも
+             反射直後のwall-handoffは正しい。ここで検査するのは、通常の転がり球が
+             旧担当へ接近中なのに発生するrolling-handoffだけ。 */
+          if(before&&after&&before!==after&&dot>0&&afterRole==='rolling-handoff')
+            switchedWhileApproaching=true;
         }
         chk.push({n:'接近中の交代 rep'+rep, ok: !switchedWhileApproaching});
       }

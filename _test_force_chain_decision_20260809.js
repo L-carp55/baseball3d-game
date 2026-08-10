@@ -25,7 +25,7 @@ const ctx={console,Math,Number,S:{outs:0},ball:{t:1},runners:[batter,lead],field
   throwPoint:b=>b===2?[0,127.3]:(b===1?[63.6,63.6]:[0,0]),
   throwFlightTime:()=>.40,armEff:()=>.8,coverArrival:()=>0};
 vm.createContext(ctx);
-for(const n of ['selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','doublePlayContinuation','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'])
+for(const n of ['transferTime','selectDefenseAction','visibleRunnerThreat','runnerThreatETA','throwThreatValue','doublePlayContinuation','throwActionForThreat','containmentBaseForTrailingRunner','chooseThrowTarget'])
   vm.runInContext(extract(n),ctx,{filename:n+'.js'});
 function ok(c,m){if(!c)throw new Error(m);}
 let d=ctx.chooseThrowTarget(third);
@@ -38,4 +38,4 @@ ctx.S.outs=0; cover2.coverBase=null; ok(ctx.chooseThrowTarget(third).nb===1,'unc
 cover2.coverBase=2;
 ctx.doublePlayContinuation=()=>({eligible:false,bonus:0,relayProbability:0,expectedOuts:0});
 ok(ctx.chooseThrowTarget(third).nb===1,'mutation did not recreate old first-base choice');
-console.log('b0805-26 force-chain decision PASS');
+console.log('b0805-28 force-chain decision PASS');
