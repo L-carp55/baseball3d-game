@@ -49,9 +49,10 @@ const movePos=update.indexOf('moveFielders(dt,true);');
 ok(settlePos>=0&&movePos>=0&&settlePos<movePos,'thrower is settled only after moveFielders; one-frame backpedal remains');
 ok(update.split('prepareThrowerFootwork(T);').length-1>=2,'retargeted transfer does not refresh body orientation');
 // Mutation: possession resetを消すと、録画と同じく古いintercept点へ後退することを確認。
+// Match executable statements, not editor-dependent explanatory comment text.
 const mutated=original
-  .replace('  setTarget(f,f.cx,f.cy);          // 打球追跡・中継位置などの古い移動目標を破棄\n','')
-  .replace('  f.v=0;                           // 送球準備中に旧目標へ惰性移動しない\n','');
+  .replace(/\s*setTarget\(f,f\.cx,f\.cy\);[^\n]*/, '')
+  .replace(/\s*f\.v=0;[^\n]*/, '');
 const mr=replay(makeCtx(mutated));
 ok(Math.hypot(mr.f.cx-37.0,mr.f.cy-135.9)>0.1,'mutation failed to recreate recorded backpedal');
 console.log(JSON.stringify({verdict:'PASS',recordedStart:[37.0,135.9],staleAim:[32.3,146.7],fixedPosition:[r.f.cx,r.f.cy],face:r.f.face},null,2));

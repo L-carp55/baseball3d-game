@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-29';
+const BUILD = 'b0805-30';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -1052,12 +1052,737 @@ const PITCHES = [
 const ZX=0.708, ZY0=1.5, ZY1=3.5;                       // ストライクゾーン(ft)
 const inZone=(x,y)=> Math.abs(x)<ZX+0.05 && y>ZY0-0.05 && y<ZY1+0.05;
 
+/* ========================= CMU 124-01 visual pitch motion ========================= */
+const CMU124_PITCH_PROFILE = {
+  "eventProxyNotes": "All event labels below are source-navigation proxies. They are not asserted as measured biomechanical events.",
+  "exporter": {
+    "sha256": "ab623b094369636774e150128634126cf125c13d3404fa8dae4d75591dbc756d",
+    "sourceIsolation": "Only selected compact keys are emitted; raw ASF/AMC frames are temporary input and must not be committed.",
+    "version": "b0805-30-cmu124-export-v1"
+  },
+  "id": "cmu124_01_pitch_visual_v1",
+  "keys": [
+    {
+      "channels": {
+        "gloveArmElevation": 0.547597,
+        "gloveArmPlane": 0.736697,
+        "gloveElbow": 0.992899,
+        "leadKnee": 0.320341,
+        "leadLeg": 0.234389,
+        "pelvisLean": 0.228362,
+        "pelvisYaw": -0.789621,
+        "rootForward": 0.0,
+        "rootRise": 0.0,
+        "throwArmElevation": 0.623552,
+        "throwArmPlane": -0.750382,
+        "throwElbow": 1.054505,
+        "torsoLean": 0.000844,
+        "torsoTilt": 0.028765,
+        "torsoYaw": 0.026106,
+        "trailKnee": 0.318751,
+        "trailLeg": 0.238555
+      },
+      "id": "set",
+      "segment": "pre",
+      "sourceFrame": 1,
+      "sourceFrameRange": [
+        1,
+        59
+      ],
+      "time": 0.0
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.552888,
+        "gloveArmPlane": 0.72773,
+        "gloveElbow": 1.000256,
+        "leadKnee": 0.286992,
+        "leadLeg": 0.221524,
+        "pelvisLean": 0.316037,
+        "pelvisYaw": -0.821689,
+        "rootForward": 0.0,
+        "rootRise": 0.0006,
+        "throwArmElevation": 0.612873,
+        "throwArmPlane": -0.774242,
+        "throwElbow": 1.025634,
+        "torsoLean": -0.004432,
+        "torsoTilt": 0.025192,
+        "torsoYaw": 0.035914,
+        "trailKnee": 0.322167,
+        "trailLeg": 0.224193
+      },
+      "id": "hand_separation_proxy",
+      "segment": "pre",
+      "sourceFrame": 59,
+      "sourceFrameRange": [
+        59,
+        117
+      ],
+      "time": 0.195946
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.562353,
+        "gloveArmPlane": 0.738826,
+        "gloveElbow": 0.99903,
+        "leadKnee": 0.29129,
+        "leadLeg": 0.228933,
+        "pelvisLean": 0.371308,
+        "pelvisYaw": -0.830416,
+        "rootForward": 0.0,
+        "rootRise": -0.00016,
+        "throwArmElevation": 0.624656,
+        "throwArmPlane": -0.776669,
+        "throwElbow": 1.018289,
+        "torsoLean": -0.003497,
+        "torsoTilt": 0.023544,
+        "torsoYaw": 0.031031,
+        "trailKnee": 0.33118,
+        "trailLeg": 0.238844
+      },
+      "id": "knee_rise_proxy",
+      "segment": "pre",
+      "sourceFrame": 118,
+      "sourceFrameRange": [
+        118,
+        145
+      ],
+      "time": 0.39527
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.372107,
+        "gloveArmPlane": 0.700074,
+        "gloveElbow": 1.104118,
+        "leadKnee": 0.508548,
+        "leadLeg": 0.292923,
+        "pelvisLean": 0.201476,
+        "pelvisYaw": -0.802246,
+        "rootForward": 0.279948,
+        "rootRise": -0.00084,
+        "throwArmElevation": 0.407867,
+        "throwArmPlane": -0.71788,
+        "throwElbow": 1.104712,
+        "torsoLean": 0.032726,
+        "torsoTilt": 0.030138,
+        "torsoYaw": 0.025588,
+        "trailKnee": 0.348318,
+        "trailLeg": 0.364491
+      },
+      "id": "peak_knee_load_proxy",
+      "segment": "pre",
+      "sourceFrame": 176,
+      "sourceFrameRange": [
+        145,
+        176
+      ],
+      "time": 0.591216
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.450372,
+        "gloveArmPlane": 0.731318,
+        "gloveElbow": 1.224938,
+        "leadKnee": 0.264075,
+        "leadLeg": 0.003651,
+        "pelvisLean": 0.022801,
+        "pelvisYaw": -0.71397,
+        "rootForward": 0.615256,
+        "rootRise": -0.003125,
+        "throwArmElevation": 0.470147,
+        "throwArmPlane": -0.736703,
+        "throwElbow": 1.230986,
+        "torsoLean": 0.012739,
+        "torsoTilt": 0.021915,
+        "torsoYaw": -0.009124,
+        "trailKnee": 0.351819,
+        "trailLeg": 0.532084
+      },
+      "id": "stride_early_proxy",
+      "segment": "pre",
+      "sourceFrame": 205,
+      "sourceFrameRange": [
+        180,
+        220
+      ],
+      "time": 0.689189
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.518066,
+        "gloveArmPlane": 0.749265,
+        "gloveElbow": 1.324548,
+        "leadKnee": 0.15548,
+        "leadLeg": -0.00411,
+        "pelvisLean": 0.000244,
+        "pelvisYaw": -0.587124,
+        "rootForward": 1.0,
+        "rootRise": -0.018513,
+        "throwArmElevation": 0.519285,
+        "throwArmPlane": -0.80047,
+        "throwElbow": 1.288099,
+        "torsoLean": -0.002892,
+        "torsoTilt": -0.01504,
+        "torsoYaw": 0.011451,
+        "trailKnee": 0.366709,
+        "trailLeg": 0.591929
+      },
+      "id": "source_left_sfc_proxy",
+      "segment": "pre",
+      "sourceFrame": 247,
+      "sourceFrameRange": [
+        231,
+        247
+      ],
+      "time": 0.831081
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.471592,
+        "gloveArmPlane": 0.753139,
+        "gloveElbow": 1.360356,
+        "leadKnee": 0.140794,
+        "leadLeg": -0.067236,
+        "pelvisLean": -0.035943,
+        "pelvisYaw": -0.658564,
+        "rootForward": 0.951635,
+        "rootRise": -0.024547,
+        "throwArmElevation": 0.397753,
+        "throwArmPlane": -0.764574,
+        "throwElbow": 1.317983,
+        "torsoLean": -0.029034,
+        "torsoTilt": -0.036932,
+        "torsoYaw": 0.001772,
+        "trailKnee": 0.437645,
+        "trailLeg": 0.613496
+      },
+      "id": "plant_proxy",
+      "segment": "pre",
+      "sourceFrame": 265,
+      "sourceFrameRange": [
+        245,
+        265
+      ],
+      "time": 0.891892
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.442885,
+        "gloveArmPlane": 0.757629,
+        "gloveElbow": 1.386145,
+        "leadKnee": 0.13202,
+        "leadLeg": -0.12518,
+        "pelvisLean": -0.058603,
+        "pelvisYaw": -0.710668,
+        "rootForward": 0.862388,
+        "rootRise": -0.030377,
+        "throwArmElevation": 0.335924,
+        "throwArmPlane": -0.732749,
+        "throwElbow": 1.361137,
+        "torsoLean": -0.047462,
+        "torsoTilt": -0.036556,
+        "torsoYaw": -0.02052,
+        "trailKnee": 0.519242,
+        "trailLeg": 0.625005
+      },
+      "id": "arm_cocking_proxy",
+      "segment": "pre",
+      "sourceFrame": 275,
+      "sourceFrameRange": [
+        265,
+        275
+      ],
+      "time": 0.925676
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.393106,
+        "gloveArmPlane": 0.75286,
+        "gloveElbow": 1.393115,
+        "leadKnee": 0.164897,
+        "leadLeg": -0.198931,
+        "pelvisLean": -0.069008,
+        "pelvisYaw": -0.774385,
+        "rootForward": 0.717968,
+        "rootRise": -0.034328,
+        "throwArmElevation": 0.29556,
+        "throwArmPlane": -0.698843,
+        "throwElbow": 1.414872,
+        "torsoLean": -0.060543,
+        "torsoTilt": -0.029461,
+        "torsoYaw": -0.034945,
+        "trailKnee": 0.575069,
+        "trailLeg": 0.581648
+      },
+      "id": "mer_proxy",
+      "segment": "pre",
+      "sourceFrame": 285,
+      "sourceFrameRange": [
+        275,
+        295
+      ],
+      "time": 0.959459
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.370829,
+        "gloveArmPlane": 0.747873,
+        "gloveElbow": 1.397867,
+        "leadKnee": 0.268628,
+        "leadLeg": -0.237065,
+        "pelvisLean": -0.073586,
+        "pelvisYaw": -0.83737,
+        "rootForward": 0.560037,
+        "rootRise": -0.034555,
+        "throwArmElevation": 0.282216,
+        "throwArmPlane": -0.686031,
+        "throwElbow": 1.448659,
+        "torsoLean": -0.069139,
+        "torsoTilt": -0.024651,
+        "torsoYaw": -0.041486,
+        "trailKnee": 0.587126,
+        "trailLeg": 0.491608
+      },
+      "id": "release_approach_proxy",
+      "segment": "pre",
+      "sourceFrame": 293,
+      "sourceFrameRange": [
+        285,
+        293
+      ],
+      "time": 0.986486
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.358434,
+        "gloveArmPlane": 0.749139,
+        "gloveElbow": 1.401802,
+        "leadKnee": 0.381432,
+        "leadLeg": -0.211165,
+        "pelvisLean": -0.374707,
+        "pelvisYaw": -0.865545,
+        "rootForward": 0.479358,
+        "rootRise": -0.03382,
+        "throwArmElevation": 0.270685,
+        "throwArmPlane": -0.674559,
+        "throwElbow": 1.462453,
+        "torsoLean": -0.071523,
+        "torsoTilt": -0.019761,
+        "torsoYaw": -0.045854,
+        "trailKnee": 0.58217,
+        "trailLeg": 0.432484
+      },
+      "id": "release_proxy",
+      "segment": "pre",
+      "sourceFrame": 297,
+      "sourceFrameRange": [
+        293,
+        302
+      ],
+      "time": 1.0
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.358434,
+        "gloveArmPlane": 0.749139,
+        "gloveElbow": 1.401802,
+        "leadKnee": 0.381432,
+        "leadLeg": -0.211165,
+        "pelvisLean": -0.374707,
+        "pelvisYaw": -0.865545,
+        "rootForward": 0.479358,
+        "rootRise": -0.03382,
+        "throwArmElevation": 0.270685,
+        "throwArmPlane": -0.674559,
+        "throwElbow": 1.462453,
+        "torsoLean": -0.071523,
+        "torsoTilt": -0.019761,
+        "torsoYaw": -0.045854,
+        "trailKnee": 0.58217,
+        "trailLeg": 0.432484
+      },
+      "id": "release_post_anchor_proxy",
+      "segment": "post",
+      "sourceFrame": 297,
+      "sourceFrameRange": [
+        293,
+        302
+      ],
+      "time": 0.0
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.144634,
+        "gloveArmPlane": 0.661354,
+        "gloveElbow": 1.386732,
+        "leadKnee": 0.938581,
+        "leadLeg": 0.092178,
+        "pelvisLean": -0.211489,
+        "pelvisYaw": -0.984544,
+        "rootForward": 0.284829,
+        "rootRise": -0.033993,
+        "throwArmElevation": 0.146811,
+        "throwArmPlane": -0.6275,
+        "throwElbow": 1.487009,
+        "torsoLean": -0.046667,
+        "torsoTilt": 0.008552,
+        "torsoYaw": -0.02899,
+        "trailKnee": 0.54111,
+        "trailLeg": 0.228428
+      },
+      "id": "early_follow_through_proxy",
+      "segment": "post",
+      "sourceFrame": 310,
+      "sourceFrameRange": [
+        302,
+        320
+      ],
+      "time": 0.108333
+    },
+    {
+      "channels": {
+        "gloveArmElevation": -0.42034,
+        "gloveArmPlane": 0.405739,
+        "gloveElbow": 0.561535,
+        "leadKnee": 0.659383,
+        "leadLeg": 1.007759,
+        "pelvisLean": -0.200809,
+        "pelvisYaw": -1.091278,
+        "rootForward": 0.040514,
+        "rootRise": -0.039843,
+        "throwArmElevation": -0.02643,
+        "throwArmPlane": -0.700799,
+        "throwElbow": 0.842365,
+        "torsoLean": 0.070957,
+        "torsoTilt": 0.029981,
+        "torsoYaw": 0.023062,
+        "trailKnee": 0.508963,
+        "trailLeg": -0.126198
+      },
+      "id": "late_follow_through_proxy",
+      "segment": "post",
+      "sourceFrame": 340,
+      "sourceFrameRange": [
+        320,
+        340
+      ],
+      "time": 0.358333
+    },
+    {
+      "channels": {
+        "gloveArmElevation": -0.561665,
+        "gloveArmPlane": 0.259622,
+        "gloveElbow": 0.11002,
+        "leadKnee": 0.220486,
+        "leadLeg": 0.986553,
+        "pelvisLean": -0.184914,
+        "pelvisYaw": -1.10466,
+        "rootForward": 0.0,
+        "rootRise": -0.041635,
+        "throwArmElevation": -0.000426,
+        "throwArmPlane": -0.734548,
+        "throwElbow": 0.380832,
+        "torsoLean": 0.097495,
+        "torsoTilt": 0.035699,
+        "torsoYaw": 0.020727,
+        "trailKnee": 0.511064,
+        "trailLeg": -0.177572
+      },
+      "id": "mir_follow_proxy",
+      "segment": "post",
+      "sourceFrame": 351,
+      "sourceFrameRange": [
+        340,
+        351
+      ],
+      "time": 0.45
+    },
+    {
+      "channels": {
+        "gloveArmElevation": 0.463974,
+        "gloveArmPlane": 0.704159,
+        "gloveElbow": 0.940678,
+        "leadKnee": 0.468889,
+        "leadLeg": 0.087817,
+        "pelvisLean": -1.01529,
+        "pelvisYaw": -1.580383,
+        "rootForward": 0.0,
+        "rootRise": 0.000267,
+        "throwArmElevation": -2.75,
+        "throwArmPlane": 1.65,
+        "throwElbow": 0.962523,
+        "torsoLean": 0.018317,
+        "torsoTilt": 0.031102,
+        "torsoYaw": 0.00272,
+        "trailKnee": 0.344932,
+        "trailLeg": 0.230186
+      },
+      "id": "field_ready_adapter_proxy",
+      "segment": "post",
+      "sourceFrame": 585,
+      "sourceFrameRange": [
+        526,
+        585
+      ],
+      "time": 2.4
+    }
+  ],
+  "offlineQa": {
+    "cmuLengthUnitToMetres": 0.056444,
+    "rootTranslationMetreRanges": {
+      "x": [
+        -0.176012,
+        0.864237
+      ],
+      "y": [
+        0.768327,
+        0.962065
+      ],
+      "z": [
+        -0.307577,
+        0.574075
+      ]
+    },
+    "rootTranslationUse": "offline source QA only; not a game-world transform and not a launch-coordinate input."
+  },
+  "schemaVersion": "pitch-motion-profile/v1",
+  "source": {
+    "amcSha256": "7fd098ab1b535c38a3a6ae7c82f7c87299e177ce665dd65fa19db110e22f0857",
+    "asfSha256": "b0e6a62b7e151200497b8bbcf42d0e95800decabec9254f8653e57dcde45dd45",
+    "attribution": "Source attribution retained in repository documentation; CMU attribution is requested/appreciated, not treated here as a condition of use.",
+    "database": "CMU Graphics Lab Motion Capture Database",
+    "fps": 120,
+    "frameCount": 643,
+    "sourceLaterality": "provisional_right_mirrorable",
+    "subject": "124",
+    "terms": "CMU mocap database terms: free use, including commercial work; do not directly resell the data or converted data.",
+    "termsUrl": "https://mocap.cs.cmu.edu/",
+    "trial": "124-01",
+    "uncertainty": "No ball, bat, force, release-speed, or laboratory biomechanical labels are present. Root yaw is a rendering proxy, not measured pelvis orientation."
+  },
+  "timing": {
+    "gameplayWindupSeconds": 0.85,
+    "postReleaseDisplaySeconds": 2.4,
+    "postReleaseSourceFrames": [
+      297,
+      585
+    ],
+    "preReleaseSourceFrames": [
+      1,
+      297
+    ],
+    "rationale": "The renderer normalizes source timing into the existing 0.85 s gameplay windup. Post-release display time is renderer-owned and never reads pitch.t.",
+    "releaseProxySourceFrames": [
+      293,
+      302
+    ]
+  }
+}
+
+;
+const PITCH_MOTION_CHANNELS = [
+  'rootForward','rootRise','pelvisYaw','pelvisLean','torsoYaw','torsoLean','torsoTilt',
+  'throwArmElevation','throwArmPlane','throwElbow','gloveArmElevation','gloveArmPlane',
+  'gloveElbow','leadLeg','leadKnee','trailLeg','trailKnee'
+];
+const PITCH_MOTION_SAMPLE = {};
+const PITCH_MOTION_MIRROR_SAMPLE = {};
+const PITCH_MOTION_POSE = {};
+const PITCH_MOTION_DIAG_POSE = {};
+const PITCH_MOTION_HAND_WORLD = {x:null,y:null,z:null};
+const PITCH_MOTION_RELEASE_DIAGNOSTIC = {
+  captured:false, gameplayReleaseSeconds:0.85, launchX:null, launchY:null, launchZ:null,
+  visualStride:null, throwSide:null, sourceEvent:null,
+  handX:null, handY:null, handZ:null, handBallOffsetFt:null
+};
+
+function isPitchMotionAngleChannel(key){
+  return key==='pelvisYaw' || key==='torsoYaw' || key==='torsoTilt' ||
+         key==='throwArmPlane' || key==='gloveArmPlane';
+}
+function lerpPitchMotionAngle(a,b,t){
+  const tau=Math.PI*2;
+  const delta=((b-a+Math.PI)%tau+tau)%tau-Math.PI;
+  return a+delta*t;
+}
+function validatePitchMotionProfile(profile){
+  if(!profile || profile.schemaVersion!=='pitch-motion-profile/v1' ||
+     profile.id!=='cmu124_01_pitch_visual_v1' || !profile.source || !profile.exporter ||
+     !profile.timing || !Array.isArray(profile.keys)) return false;
+  if(profile.source.subject!=='124' || profile.source.trial!=='124-01' ||
+     profile.source.frameCount!==643 || profile.source.fps!==120 ||
+     profile.source.asfSha256!=='b0e6a62b7e151200497b8bbcf42d0e95800decabec9254f8653e57dcde45dd45' ||
+     profile.source.amcSha256!=='7fd098ab1b535c38a3a6ae7c82f7c87299e177ce665dd65fa19db110e22f0857' ||
+     !profile.source.terms || !profile.source.termsUrl || !profile.source.uncertainty ||
+     profile.source.sourceLaterality!=='provisional_right_mirrorable' ||
+     !profile.exporter.version || !profile.exporter.sha256 || profile.timing.gameplayWindupSeconds!==0.85 ||
+     !Number.isFinite(profile.timing.postReleaseDisplaySeconds) || profile.timing.postReleaseDisplaySeconds<=0) return false;
+  if(profile.keys.length<12 || profile.keys.length>18) return false;
+  let previousPre=-1, previousPost=-1, previousPreFrame=-1, previousPostFrame=-1,
+      release=null, releasePostAnchor=null, preCount=0, postCount=0;
+  for(let i=0;i<profile.keys.length;i++){
+    const key=profile.keys[i];
+    if(!key || (key.segment!=='pre' && key.segment!=='post') || !Array.isArray(key.sourceFrameRange) ||
+       key.sourceFrameRange.length!==2 || !Number.isFinite(key.time) || !Number.isFinite(key.sourceFrame) || !key.channels) return false;
+    const previous=key.segment==='pre'?previousPre:previousPost;
+    const previousFrame=key.segment==='pre'?previousPreFrame:previousPostFrame;
+    if(key.time<previous || key.sourceFrame<previousFrame || key.sourceFrame<key.sourceFrameRange[0] || key.sourceFrame>key.sourceFrameRange[1]) return false;
+    if(key.segment==='pre'){ previousPre=key.time; previousPreFrame=key.sourceFrame; preCount++; }
+    else { previousPost=key.time; previousPostFrame=key.sourceFrame; postCount++; }
+    for(let j=0;j<PITCH_MOTION_CHANNELS.length;j++){
+      if(!Number.isFinite(key.channels[PITCH_MOTION_CHANNELS[j]])) return false;
+    }
+    if(key.id==='release_proxy') release=key;
+    if(key.id==='release_post_anchor_proxy') releasePostAnchor=key;
+  }
+  return profile.keys[0].id==='set' && profile.keys[0].time===0 && preCount>0 && postCount>0 &&
+         release && releasePostAnchor && release.segment==='pre' && release.time===1 && releasePostAnchor.segment==='post' && releasePostAnchor.time===0 &&
+         release.sourceFrame===297 && release.sourceFrameRange[0]===293 && release.sourceFrameRange[1]===302;
+}
+function samplePitchMotion(profile, segment, time, out){
+  const dest=out||{};
+  let first=-1, last=-1;
+  for(let i=0;i<profile.keys.length;i++){
+    if(profile.keys[i].segment===segment){ if(first<0) first=i; last=i; }
+  }
+  if(first<0) return null;
+  const loTime=profile.keys[first].time, hiTime=profile.keys[last].time;
+  const t=clamp(time,loTime,hiTime);
+  let lo=first;
+  while(lo<last && t>profile.keys[lo+1].time) lo++;
+  const hi=Math.min(last,lo+1), a=profile.keys[lo], b=profile.keys[hi];
+  const span=b.time-a.time, u=span>0 ? clamp((t-a.time)/span,0,1) : 0;
+  for(let i=0;i<PITCH_MOTION_CHANNELS.length;i++){
+    const key=PITCH_MOTION_CHANNELS[i], av=a.channels[key], bv=b.channels[key];
+    dest[key]=isPitchMotionAngleChannel(key) ? lerpPitchMotionAngle(av,bv,u) : lerp(av,bv,u);
+  }
+  dest.profileId=profile.id;
+  dest.segment=segment;
+  dest.time=t;
+  dest.sourceEvent=(u<0.5?a.id:b.id);
+  dest.throwSide='R';
+  dest.gloveSide='L';
+  dest.mirrored=false;
+  return dest;
+}
+function mirrorPitchMotionSample(sample, out){
+  const dest=out||{};
+  for(let i=0;i<PITCH_MOTION_CHANNELS.length;i++){
+    const key=PITCH_MOTION_CHANNELS[i];
+    dest[key]=sample[key];
+  }
+  dest.pelvisYaw=-sample.pelvisYaw;
+  dest.torsoYaw=-sample.torsoYaw;
+  dest.torsoTilt=-sample.torsoTilt;
+  dest.throwArmPlane=-sample.throwArmPlane;
+  dest.gloveArmPlane=-sample.gloveArmPlane;
+  dest.profileId=sample.profileId;
+  dest.segment=sample.segment;
+  dest.time=sample.time;
+  dest.sourceEvent=sample.sourceEvent;
+  dest.throwSide=sample.throwSide==='R'?'L':'R';
+  dest.gloveSide=sample.gloveSide==='L'?'R':'L';
+  dest.mirrored=!sample.mirrored;
+  return dest;
+}
+/* Acclaim bone-rotation axes and the simple figure rig do not share a zero pose.
+   These fixed coordinate calibrations map compact source controls into the rig;
+   they do not add time keys, alter pitch timing, or write game state. */
+function mapPitchMotionThrowArmAngle(sourceAngle){
+  return clamp(-2.95 + sourceAngle*1.25, -2.90, -1.55);
+}
+function mapPitchMotionGloveArmAngle(sourceAngle){
+  return clamp(-1.35 + sourceAngle*0.90, -1.75, -0.35);
+}
+function mapPitchMotionToFigurePose(sample, out){
+  const pose=out||{};
+  const rightThrow=sample.throwSide!=='L';
+  pose.pitchMotion=true;
+  pose.rise=sample.rootRise;
+  pose.stride=sample.rootForward*4.8;
+  pose.pelvisYaw=sample.pelvisYaw;
+  pose.pelvisLean=sample.pelvisLean;
+  pose.torsoYaw=sample.torsoYaw;
+  pose.torsoLean=sample.torsoLean;
+  pose.torsoTilt=sample.torsoTilt;
+  pose.gloveSide=sample.gloveSide;
+  pose.sourceEvent=sample.sourceEvent;
+  const throwArm=mapPitchMotionThrowArmAngle(sample.throwArmElevation);
+  const gloveArm=mapPitchMotionGloveArmAngle(sample.gloveArmElevation);
+  if(rightThrow){
+    pose.armR=throwArm; pose.armRZ=sample.throwArmPlane; pose.elbowR=sample.throwElbow;
+    pose.armL=gloveArm; pose.armLZ=sample.gloveArmPlane; pose.elbowL=sample.gloveElbow;
+    pose.legL=sample.leadLeg; pose.kneeL=sample.leadKnee;
+    pose.legR=sample.trailLeg; pose.kneeR=sample.trailKnee;
+  }else{
+    pose.armL=throwArm; pose.armLZ=-sample.throwArmPlane; pose.elbowL=sample.throwElbow;
+    pose.armR=gloveArm; pose.armRZ=-sample.gloveArmPlane; pose.elbowR=sample.gloveElbow;
+    pose.legR=sample.leadLeg; pose.kneeR=sample.leadKnee;
+    pose.legL=sample.trailLeg; pose.kneeL=sample.trailKnee;
+  }
+  return pose;
+}
+/* A compact renderer-space hand estimate for release QA.  It is deliberately not
+   an FK or a replacement for pitch.rx/ry/rz: CMU 124-01 contains no ball marker. */
+function estimatePitchMotionThrowHandWorldPosition(sample, pitcher, out){
+  const dest=out||{};
+  const pose=mapPitchMotionToFigurePose(sample,PITCH_MOTION_DIAG_POSE);
+  const rightThrow=sample.throwSide!=='L';
+  const shoulderX=rightThrow ? 0.62 : -0.62;
+  const upper=0.88, fore=0.74;
+  const upperAngle=rightThrow ? pose.armR : pose.armL;
+  const foreAngle=upperAngle-sample.throwElbow;
+  const lateral=shoulderX + Math.sin(sample.throwArmPlane)*0.28;
+  const forward=0.34 + Math.sin(upperAngle)*upper + Math.sin(foreAngle)*fore;
+  const height=3.48 + pose.rise - Math.cos(upperAngle)*upper - Math.cos(foreAngle)*fore;
+  const face=Math.PI+sample.pelvisYaw;
+  const baseX=pitcher ? pitcher.cx : 0;
+  const baseZ=(pitcher ? pitcher.cy : 0)-pose.stride;
+  dest.x=baseX + Math.cos(face)*lateral + Math.sin(face)*forward;
+  dest.y=height;
+  dest.z=baseZ - Math.sin(face)*lateral + Math.cos(face)*forward;
+  return dest;
+}
+function beginPitchMotion(){
+  anim.pitchMotionPostSec=0;
+  anim.pitchMotionReleased=true;
+  const sample=samplePitchMotion(CMU124_PITCH_PROFILE,'pre',1,PITCH_MOTION_SAMPLE);
+  const pose=sample ? mapPitchMotionToFigurePose(sample,PITCH_MOTION_POSE) : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.captured=!!pose;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.launchX=pitch ? pitch.rx : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.launchY=pitch ? pitch.ry : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.launchZ=pitch ? pitch.rz : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.visualStride=pose ? pose.stride : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.throwSide=sample ? sample.throwSide : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.sourceEvent=sample ? sample.sourceEvent : null;
+  const pitcher=fielders.find(f=>f.n==='投');
+  const hand=(sample && pitcher) ? estimatePitchMotionThrowHandWorldPosition(sample,pitcher,PITCH_MOTION_HAND_WORLD) : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.handX=hand ? hand.x : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.handY=hand ? hand.y : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.handZ=hand ? hand.z : null;
+  PITCH_MOTION_RELEASE_DIAGNOSTIC.handBallOffsetFt=(hand && pitch) ?
+    Math.hypot(pitch.rx-hand.x,pitch.ry-hand.y,pitch.rz-hand.z) : null;
+}
+function pitchMotionTestApi(){
+  return {
+    profile:CMU124_PITCH_PROFILE,
+    validatePitchMotionProfile,
+    samplePitchMotion,
+    mirrorPitchMotionSample,
+    mapPitchMotionToFigurePose,
+    estimatePitchMotionThrowHandWorldPosition,
+    channels:PITCH_MOTION_CHANNELS.slice()
+  };
+}
+const CMU124_PITCH_PROFILE_VALID = validatePitchMotionProfile(CMU124_PITCH_PROFILE);
+/* ======================= /CMU 124-01 visual pitch motion ======================= */
+
 /* ========================= 状態 ========================= */
 let S, ball=null, fielders=[], runners=[], pitch=null, throwAnim=null;
 let FIELD_ASSIGN_SEQ=0;
 let aim={x:0, y:2.5};
 let cam={eye:[0,7.0,-11.5], at:[0,2.9,10], teye:[0,7.0,-11.5], tat:[0,2.9,10]};
-let anim={swing:-1, wind:-1, t:0};
+let anim={swing:-1, wind:-1, t:0, pitchMotionPostSec:0, pitchMotionReleased:false};
 let trail=[];
 
 function newGame(){
@@ -1074,7 +1799,7 @@ function newGame(){
   fielders = buildFielders(1);          // 1回表はCPUが守備
   ball=null; runners=[]; pitch=null; trail=[]; throwAnim=null;
   aim={x:0,y:2.5};
-  anim={swing:-1, wind:-1, t:0};
+  anim={swing:-1, wind:-1, t:0, pitchMotionPostSec:0, pitchMotionReleased:false};
   snapCam(true);
   ui();
 }
@@ -1090,7 +1815,10 @@ function beginAtBatPhase(){
   /* 投球中も走者を置いておく（盗塁のため）。打者走者はまだ作らない。 */
   S.stealing=false; S.stealCover=false; S.jumpEarly=false; S.pendingStrike=null; S.playClock=0; S.throwCount=0;
   beginRunners(S.bases, 'noBatter');
-  if(isPlayerBatting()){ S.phase='windup'; S.timer=0.85; anim.wind=0; }
+  if(isPlayerBatting()){
+    S.phase='windup'; S.timer=0.85; anim.wind=0;
+    anim.pitchMotionPostSec=0; anim.pitchMotionReleased=false;
+  }
   else { S.phase='aimPitch'; setMsg('',''); }
   ui();
 }
@@ -1119,6 +1847,7 @@ function launchPitch(type, nx, ny){
     swung:false, cpuSwingT:null, cpuOff:null, done:false
   };
   anim.wind=0;
+  beginPitchMotion();                  // visual release event: same update tick as the existing launch
   if(!isPlayerBatting()){
     const strike=inZone(tx,ty), two=S.strikes>=2;
     const p = strike ? (two?0.94:0.70) : (two?0.42:0.24);
@@ -4057,6 +4786,7 @@ function update(dt){
   if(S.phase==='windup'||S.phase==='pitch') updateRunners(dt);
   if(anim.swing>=0){ anim.swing+=dt; if(anim.swing>0.45) anim.swing=-1; }
   if(anim.wind>=0){ anim.wind+=dt; if(anim.wind>1.1) anim.wind=-1; }
+  if(S.phase==='pitch' && anim.pitchMotionReleased) anim.pitchMotionPostSec+=dt;
   switch(S.phase){
     case 'msg': S.timer-=dt; if(S.timer<=0){ setMsg(''); beginAtBatPhase(); } break;
     case 'windup': S.timer-=dt;
@@ -4311,11 +5041,27 @@ function drawFigure(kit, fx, fz, face, runDist, scale, speed01, pose){
   /* rise=体全体の上下オフセット(ft)。跳び上がり(正)・飛び込みで地面へ沈む(負)に使う */
   const bob = (P.rise||0) + (P.crouch!==undefined ? -P.crouch : (sp>0.02 ? Math.abs(Math.cos(ph))*0.13*sp : 0));
   const lean = P.lean!==undefined ? P.lean : 0.16*sp;
-  let base = M4.mul(M4.trans(fx,bob,fz), M4.rotY((face||0) + (P.turn||0)));
-  if(s!==1) base = M4.mul(base, M4.scale(s));
-  const body = M4.mul(base, M4.rotX(lean));
-  drawMesh(MESH[kit], body);
   const hipY=2.08, shY=3.48, KNEE=-1.0, ELB=-0.74;
+  /* Legacy callers retain the exact one-piece transform.  CMU profile poses alone
+     opt into a pelvis/torso split so legs follow the lower body and arms the torso. */
+  const split = P.pitchMotion===true || P.pelvisYaw!==undefined || P.torsoYaw!==undefined;
+  let base, pelvis, body;
+  if(!split){
+    base = M4.mul(M4.trans(fx,bob,fz), M4.rotY((face||0) + (P.turn||0)));
+    if(s!==1) base = M4.mul(base, M4.scale(s));
+    body = M4.mul(base, M4.rotX(lean));
+    pelvis=body;
+  }else{
+    base = M4.mul(M4.trans(fx,bob,fz), M4.rotY((face||0) + (P.pelvisYaw||0)));
+    if(s!==1) base = M4.mul(base, M4.scale(s));
+    pelvis = M4.mul(base, M4.rotX(P.pelvisLean||0));
+    let torso = M4.mul(pelvis, M4.trans(0,hipY,0));
+    torso = M4.mul(torso, M4.rotY(P.torsoYaw||0));
+    torso = M4.mul(torso, M4.rotZ(P.torsoTilt||0));
+    torso = M4.mul(torso, M4.rotX(P.torsoLean!==undefined?P.torsoLean:lean));
+    body = M4.mul(torso, M4.trans(0,-hipY,0));
+  }
+  drawMesh(MESH[kit], body);
   /* 走りの既定関節（棒腕・棒脚が人形っぽさの主因だった）:
      ・膝は後ろへ振れている脚が畳まれる（蹴り戻し）
      ・肘は約90度に曲げて振る（腕のポンプ）
@@ -4323,8 +5069,8 @@ function drawFigure(kit, fx, fz, face, runDist, scale, speed01, pose){
   const kneeDefL = 0.10 + Math.max(0, -Math.sin(ph))*1.15*sp;
   const kneeDefR = 0.10 + Math.max(0,  Math.sin(ph))*1.15*sp;
   const elbDef   = 0.25 + 0.80*sp;
-  const seg=(up,lo, x,y, ang, zang, bendSigned, joint)=>{
-    let m = M4.mul(body, M4.trans(x,y,0));
+  const seg=(up,lo, x,y, ang, zang, bendSigned, joint, anchor)=>{
+    let m = M4.mul(anchor, M4.trans(x,y,0));
     if(zang) m = M4.mul(m, M4.rotZ(zang));
     m = M4.mul(m, M4.rotX(ang));
     drawMesh(up, m);
@@ -4338,13 +5084,13 @@ function drawFigure(kit, fx, fz, face, runDist, scale, speed01, pose){
   const eL = P.elbowL!==undefined?P.elbowL:elbDef;
   const eR = P.elbowR!==undefined?P.elbowR:elbDef;
   // 膝は後ろへ（-rotX）、肘は前へ（+rotX）曲がる
-  seg(MESH[kit+'Thigh'], MESH[kit+'Shin'], -0.22, hipY, P.legL!==undefined?P.legL: sw, 0, -kL, KNEE);
-  seg(MESH[kit+'Thigh'], MESH[kit+'Shin'],  0.22, hipY, P.legR!==undefined?P.legR:-sw, 0, -kR, KNEE);
-  const fmL = seg(MESH[kit+'UpArm'], MESH[kit+'FoArm'], -0.62, shY, P.armL!==undefined?P.armL: aw, P.armLZ, eL, ELB);
-  seg(MESH[kit+'UpArm'], MESH[kit+'FoArm'],  0.62, shY, P.armR!==undefined?P.armR:-aw, P.armRZ, eR, ELB);
-  // グラブ（左前腕の先＝手の位置）
+  seg(MESH[kit+'Thigh'], MESH[kit+'Shin'], -0.22, hipY, P.legL!==undefined?P.legL: sw, 0, -kL, KNEE, split?pelvis:body);
+  seg(MESH[kit+'Thigh'], MESH[kit+'Shin'],  0.22, hipY, P.legR!==undefined?P.legR:-sw, 0, -kR, KNEE, split?pelvis:body);
+  const fmL = seg(MESH[kit+'UpArm'], MESH[kit+'FoArm'], -0.62, shY, P.armL!==undefined?P.armL: aw, P.armLZ, eL, ELB, body);
+  const fmR = seg(MESH[kit+'UpArm'], MESH[kit+'FoArm'],  0.62, shY, P.armR!==undefined?P.armR:-aw, P.armRZ, eR, ELB, body);
+  // グラブは従来どおり左を既定にし、CMU profile のみ左右反転を指定できる。
   if(P.glove!==false){
-    drawMesh(MESH.glove, M4.mul(fmL, M4.trans(0,-0.72,0)));
+    drawMesh(MESH.glove, M4.mul(P.gloveSide==='R'?fmR:fmL, M4.trans(0,-0.72,0)));
   }
   return body;                       // バットなどを手に付けるために体の行列を返す
 }
@@ -4405,62 +5151,22 @@ function fielderPose(f){
     return fielderReadyPose(f);
   return null;
 }
-/* 投手の投球動作。振りかぶり→踏み出し→リリース→フォロースルー。
-   遠くから見て「投げている」と分かるかどうかは、腕の角度より
-   ①体が本塁側へ踏み出すこと ②体が横を向いてから正面へ回ること で決まる。
-   その場に立ったまま腕だけ動かしていたので、不自然に見えていた。
-   stride=本塁側へ出る量(ft) / turn=上体のひねり */
-/* 投球フォームの基準ポーズ。k=0 は始動、0.35=最大膝上げ、0.62=踏み出し足接地、
-   0.80=リリース、1=フォロースルー。投球の一般的な運動連鎖
-   （膝上げ→ストライド/足接地→コッキング→加速/リリース→減速）を時間軸に合わせる。 */
-function pitcherPoseK(k){
-  k=clamp(k,0,1);
-  if(k<0.35){
-    const u=k/0.35;
-    return {armL:0.5-1.5*u, armR:0.4-1.1*u, elbowL:0.4+0.5*u, elbowR:0.5+0.6*u,
-            legL:-1.7*u, legR:0.15*u, kneeL:1.5*u, kneeR:0.15,
-            lean:-0.12*u, crouch:0.12*u, turn:-0.55*u, stride:0};
-  }
-  if(k<0.62){
-    const u=(k-0.35)/0.27;
-    return {armL:-1.0+0.7*u, armR:-0.7-2.0*u, elbowL:0.9-0.4*u, elbowR:1.1+0.7*u,
-            legL:-1.7+2.5*u, legR:0.15+0.40*u, kneeL:1.5-1.2*u, kneeR:0.15+0.25*u,
-            lean:-0.12+0.42*u, crouch:0.12+0.30*u, turn:-0.55+0.45*u, stride:3.4*u};
-  }
-  const u=(k-0.62)/0.38;
-  return {armL:-0.3+1.0*u, armR:-2.7+3.6*u, elbowL:0.5, elbowR:Math.max(0.1,1.8-3.2*u),
-          legL:0.8+0.4*u, legR:0.55-1.0*u, kneeL:0.3, kneeR:0.4+0.5*u,
-          lean:0.30+0.30*u, crouch:0.42-0.16*u, turn:-0.10+0.55*u, stride:3.4+2.0*u};
-}
-function blendPitchPose(a,b,t){
-  const o={};
-  const keys=new Set([...Object.keys(a),...Object.keys(b)]);
-  keys.forEach(k=>o[k]=lerp(a[k]===undefined?0:a[k],b[k]===undefined?0:b[k],t));
-  return o;
-}
-const PITCH_RELEASE_K=0.80;
 function pitcherPose(){
-  /* launchPitch() へ切り替わった瞬間、球はすでに手を離れて pitchPos(0) から飛び始める。
-     旧実装はその時点の身体が k=0.55（まだストライド中）で、球だけ先に飛び、
-     その後に腕を振っていた。OI-245 の「人間と全然違う」見え方の構造的原因。 */
+  /* CMU profile は表示だけを担う。pre は既存の0.85秒に正規化し、launchPitch()
+     と同じ更新tickで release_proxy に到達する。post は renderer-owned 秒時計で、
+     飛行進行率や投球タイプには触れない。 */
+  if(!CMU124_PITCH_PROFILE_VALID) return null;
   if(anim.wind>=0 && S.phase==='windup'){
-    const u=clamp(anim.wind/0.85,0,1);
-    return pitcherPoseK(PITCH_RELEASE_K*u);       // windup の終端をリリース姿勢へ合わせる
+    const sample=samplePitchMotion(CMU124_PITCH_PROFILE,'pre',
+      clamp(anim.wind/CMU124_PITCH_PROFILE.timing.gameplayWindupSeconds,0,1),PITCH_MOTION_SAMPLE);
+    return sample ? mapPitchMotionToFigurePose(sample,PITCH_MOTION_POSE) : null;
   }
-  if(S.phase==='pitch' && pitch){
-    const e=clamp(pitch.t,0,1);
-    if(e<0.38){
-      const u=e/0.38;
-      return pitcherPoseK(PITCH_RELEASE_K+(1-PITCH_RELEASE_K)*u); // リリース直後の減速
-    }
-    /* ボールが飛んでいる間ずっと極端なフォロースルーで凍らず、上体を起こして守備へ備える。 */
-    const u=clamp((e-0.38)/0.50,0,1);
-    const follow=pitcherPoseK(1);
-    const settle={armL:0.38,armR:0.58,elbowL:0.55,elbowR:0.45,
-      legL:0.18,legR:-0.30,kneeL:0.20,kneeR:0.62,
-      lean:0.24,crouch:0.10,turn:0.18,stride:5.0};
-    return blendPitchPose(follow,settle,u);
+  if(S.phase==='pitch' && pitch && anim.pitchMotionReleased){
+    const sample=samplePitchMotion(CMU124_PITCH_PROFILE,'post',
+      anim.pitchMotionPostSec,PITCH_MOTION_SAMPLE);
+    return sample ? mapPitchMotionToFigurePose(sample,PITCH_MOTION_POSE) : null;
   }
+  /* flight はここで null に落ち、既存の fielderPose() が必ず表示を引き継ぐ。 */
   return null;
 }
 /* 影は太陽の方向へ伸ばして落とす。真下に丸い円を置くと、
