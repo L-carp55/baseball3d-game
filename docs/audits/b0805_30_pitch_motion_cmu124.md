@@ -6,7 +6,7 @@
 | --- | --- |
 | Branch | `codex/b0805-30-pitch-motion-bank-cmu124` |
 | Gameplay base | `60b993b73fed854934a976e45e8feb9437deb584` (`b0805-29`) |
-| Final Git SHA | Recorded in the commit/push handoff because a commit cannot byte-for-byte contain its own final SHA. |
+| Final implementation SHA | `7633fed30fe5b61019bce3b60dc0262f8f1a3494` — the commit containing the complete motion/code/test/profile tree. |
 | Game build label | `b0805-30` (visual-motion build only) |
 | Change boundary | visual pitcher motion, reproducible compact profile, tests, provenance, and audit only |
 | Explicitly not started | merge, M1.1, P1, E1, F1, P2, delivery-cadence/physics/rules work |
