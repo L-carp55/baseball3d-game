@@ -7,6 +7,7 @@ name: Materialize b0805-28
     paths:
       - "scripts/apply_b0805_28.py"
       - "scripts/apply_b0805_28_handoff_hysteresis.py"
+      - "scripts/apply_test17_handoff_scope.py"
       - "_test_breakaway_transfer_context_20260810.js"
       - "_test_force_chain_decision_20260809.js"
       - ".github/workflows/b0805-28-materialize.yml"
@@ -26,11 +27,12 @@ jobs:
           fetch-depth: 0
       - name: Apply b0805-28 source transformations
         run: |
-          python -m py_compile scripts/apply_b0805_28.py scripts/apply_b0805_28_handoff_hysteresis.py
+          python -m py_compile scripts/apply_b0805_28.py scripts/apply_b0805_28_handoff_hysteresis.py scripts/apply_test17_handoff_scope.py
           if grep -q "const BUILD = 'b0805-26';" baseball3d.html; then
             python scripts/apply_b0805_28.py
           fi
           python scripts/apply_b0805_28_handoff_hysteresis.py
+          python scripts/apply_test17_handoff_scope.py
       - name: Static and focused validation
         run: |
           python - <<'PY'
@@ -40,8 +42,11 @@ jobs:
           Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
           assert "const BUILD = 'b0805-28';" in src
           assert 'const preApproachDot=' in src
+          harness=Path('_test_harness_20260804.js').read_text(encoding='utf-8')
+          assert "afterRole==='rolling-handoff'" in harness
           PY
           node --check /tmp/baseball3d-main.js
+          node --check _test_harness_20260804.js
           node --check _test_breakaway_transfer_context_20260810.js
           node _architecture_guard_20260808.js
           node _test_runner_intent_20260808.js
@@ -51,14 +56,14 @@ jobs:
           node _test_defense_action_policy_20260809.js
           node _test_force_chain_decision_20260809.js
           node _test_breakaway_transfer_context_20260810.js baseball3d.html
-      - name: Commit materialized game source
+      - name: Commit materialized source and corrected fixture
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add baseball3d.html
+          git add baseball3d.html _test_harness_20260804.js
           if git diff --cached --quiet; then
-            echo "No materialized game changes"
+            echo "No materialized changes"
           else
-            git commit -m "fix: model breakaways and possession-specific transfers"
+            git commit -m "fix: model breakaways and correct handoff fixture"
             git push origin HEAD:agent/b0805-28-breakaway-transfer-context
           fi
