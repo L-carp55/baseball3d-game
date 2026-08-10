@@ -1,0 +1,60 @@
+name: Materialize b0805-29
+
+"on":
+  push:
+    branches:
+      - "agent/b0805-29-possession-footwork"
+    paths:
+      - "scripts/apply_b0805_29.py"
+      - "_test_thrower_footwork_20260810.js"
+      - ".github/workflows/b0805-29-materialize.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: "agent/b0805-29-possession-footwork"
+          fetch-depth: 0
+      - name: Apply b0805-29 source transformation
+        run: |
+          python -m py_compile scripts/apply_b0805_29.py
+          python scripts/apply_b0805_29.py
+      - name: Static and focused validation
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          assert "const BUILD = 'b0805-29';" in src
+          assert 'function prepareThrowerFootwork(T)' in src
+          PY
+          node --check /tmp/baseball3d-main.js
+          node --check _test_thrower_footwork_20260810.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_runner_controls_sliding_20260809.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+          node _test_defense_action_policy_20260809.js
+          node _test_force_chain_decision_20260809.js
+          node _test_breakaway_transfer_context_20260810.js baseball3d.html
+          node _test_thrower_footwork_20260810.js baseball3d.html
+      - name: Commit materialized game source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseball3d.html
+          if git diff --cached --quiet; then
+            echo "No materialized game changes"
+          else
+            git commit -m "fix: stop stale fielding motion during throw transfer"
+            git push origin HEAD:agent/b0805-29-possession-footwork
+          fi
