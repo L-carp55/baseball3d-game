@@ -17,7 +17,7 @@ The committed compact artifact is [cmu124_pitch_profile_v1.json](cmu124_pitch_pr
 | Motion file | `124_01.amc` |
 | Motion SHA-256 | `7fd098ab1b535c38a3a6ae7c82f7c87299e177ce665dd65fa19db110e22f0857` |
 | Frame inventory | 643 frames at 120 fps |
-| Exporter | `tools/motion/export_cmu124_pitch_profile.py`, `b0805-30-cmu124-export-v1` |
+| Exporter | `tools/motion/export_cmu124_pitch_profile.py`, `b0805-30-cmu124-export-r1-fk` |
 
 Rebuild the compact artifact only from a temporary local copy of the two verified source files:
 
@@ -28,7 +28,7 @@ python tools/motion/export_cmu124_pitch_profile.py `
   --output <temporary-output>\cmu124_pitch_profile_v1.json
 ```
 
-The exporter refuses a filename or SHA-256 mismatch, checks the expected 1–643 frame inventory, and emits only the selected compact key data. Compare the temporary output byte-for-byte with the committed JSON before updating it.
+The exporter refuses a filename or SHA-256 mismatch, checks the expected 1–643 frame inventory, and emits only the selected compact key data. Its channels come from the local canonical ASF/AMC axis-basis FK, delivery-frame transforms, and geometric limb vectors; it does not read renderer controls from raw AMC Euler indexes. Compare the temporary output byte-for-byte with the committed JSON before updating it.
 
 ## Terms, attribution, and repository boundary
 
@@ -54,9 +54,9 @@ The selected frame ranges are navigation proxies, not measured scientific event 
 - MER proxy: 275–295
 - release proxy: 293–302
 - MIR/follow-through proxy: 310–351
-- field-ready adapter proxy: 526–585
+- game-side field-ready adapter: renderer time 1.2 s, with no CMU source frame
 
-The source laterality is recorded as **provisional right, mirrorable**. The renderer has a deterministic right/left mirror contract rather than treating laterality as final athlete metadata. Root yaw is a rendering proxy and is not a measured pelvis orientation.
+The source laterality is recorded as **provisional right, mirrorable**. The renderer has a deterministic right/left mirror contract rather than treating laterality as final athlete metadata. Root yaw is a rendering proxy and is not a measured pelvis orientation. The post-release renderer may use a distinct FK-derived wrist-follow carry for coherent recovery; it is explicitly not a source-root stride or game-world movement.
 
 ## Source links
 
