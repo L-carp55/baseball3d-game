@@ -1,4 +1,5 @@
 name: Apply b0805-29a owner fixes
+# validation revision 4: shared landed-state contract included
 
 "on":
   push:
