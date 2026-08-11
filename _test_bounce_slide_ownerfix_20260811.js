@@ -25,7 +25,9 @@ vm.runInContext(extract('bounceVerticalSpeed'),ctx);
 const apex=v=>v*v/(2*32.2);
 
 assert(html.includes("const BUILD = 'b0805-29a';"),'wrong build label');
-assert(html.includes('b.vz=bounceVerticalSpeed(b,b.vz)'),'production impact path bypasses bounce helper');
+assert(html.includes('const reboundVz=bounceVerticalSpeed(b,b.vz)') &&
+       html.includes('b.landed=true; b.vz=reboundVz'),
+  'production impact path bypasses bounce helper or does not persist impact state');
 assert(!html.includes('b.vz=-b.vz*0.55'),'universal 0.55 rebound still present');
 assert((html.match(/landed:ball\.landed,maxZ:ball\.maxZ,la:ball\.la/g)||[]).length>=2,
   'prediction clones do not carry impact metadata');
