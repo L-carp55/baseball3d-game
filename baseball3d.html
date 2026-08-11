@@ -93,7 +93,7 @@
 /* ビルド番号。修正のたびに更新する。ブラウザのタブ名と録画JSONに刻まれるので、
    「その録画がどのビルドで起きたか」を推測せずに特定できる
    （2026-08-04: リロード前の旧ビルドの録画を現行の不具合として2件調査しかけた対策）。 */
-const BUILD = 'b0805-29';
+const BUILD = 'b0805-29a';
 const REC = { plays:[], cur:null, t:0, MAX:60 };
 function recStart(tag){
   if(REC.cur && REC.cur.f.length) recEnd();
@@ -1208,6 +1208,21 @@ const DRAG=0.0013;
    ・サイドスピン(ss)＝横に曲がる力。引っ張った打球がライン方向へ切れていくのはこれ
    回転はコンタクト(startFlight)で決まり、飛んでいる間に少しずつ弱まる。
    係数は「バックスピン強で+25ft・サイドスピン強で30ft横」の実測目安に合わせた。 */
+/* First-impact rebound for batted balls.
+   The old universal 0.55 restitution let a high fly descending around 50 ft/s
+   rebound above the 9.4 ft fence. Keep visible ground-ball hops, but cap the
+   first rebound of medium/high air trajectories. This changes vertical impact
+   response only; rolling drag and horizontal impact retention remain unchanged. */
+function bounceVerticalSpeed(b,impactVz){
+  const impact=Math.max(0,-impactVz);
+  const firstImpact=!b.landed;
+  const maxZ=Number.isFinite(b.maxZ)?b.maxZ:0;
+  let restitution=0.55, cap=20.0;
+  if(firstImpact && maxZ>=18){ restitution=0.28; cap=14.0; }
+  else if(firstImpact && maxZ>=10){ restitution=0.38; cap=16.0; }
+  else if(impact>32){ restitution=0.43; cap=20.0; }
+  return Math.min(cap, impact*restitution);
+}
 function stepBall(b,dt){
   const sp=Math.hypot(b.vx,b.vy,b.vz), d=DRAG*sp;
   b.vx-=b.vx*d*dt; b.vy-=b.vy*d*dt; b.vz-=b.vz*d*dt;
@@ -1246,9 +1261,12 @@ function stepBall(b,dt){
        「全然バウンドしている感じがない」＝滑って見えた。オーナー指摘）。
        見える跳ねを作るのは縦の反発だけ＝0.55へ。横の維持率は0.78のまま
        （0.86に上げたら球足が伸びすぎて封殺テストが0/20に崩壊した。実測済み）。 */
-    if(b.vz<-1.2){ b.vz=-b.vz*0.55; b.vx*=0.78; b.vy*=0.78; }
+    if(b.vz<-1.2){
+      const reboundVz=bounceVerticalSpeed(b,b.vz); // classify before marking the impact
+      b.landed=true; b.vz=reboundVz; b.vx*=0.78; b.vy*=0.78;
+    }
     else {
-      b.vz=0;
+      b.landed=true; b.vz=0;
       /* 転がりの減速は「一定＋速度比例」。以前の指数型(毎秒70%減)は、強いゴロが
          1秒足らずで急死した後、時速3ftの這いが延々と続く二重の不自然さがあった
          （録画205336、三塁線の95mphゴロ）。実際の芝は速い球足ほど削られつつ、
@@ -1272,7 +1290,8 @@ function diveReach(f){ return DIVE_R*(0.25 + 0.75*((f.fld||60)/100)); }
    大きく弾んだ打球は頭の上を越えて後逸する（実際に指摘のあった不具合）。
    これから先の軌道のうち「自分が間に合って、かつ捕れる高さにある」最初の点へ入る。 */
 function interceptPoint(f){
-  const b={x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz};
+  const b={x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz,
+    landed:ball.landed,maxZ:ball.maxZ,la:ball.la};
   /* ★2026-08-05修理(OI-241実行層): 再照準のたびに反応時間を再徴収し静止スタートで
      測り直していたため、走り出した野手ほど「もう間に合わない」と誤判定され、
      狙い点が0.2秒ごとに深く逃げていた（実測: t=0で92ftの点→t=0.9で149ftの点）。
@@ -1493,8 +1512,12 @@ function desiredRunnerSlide(r){
   const remaining=Math.abs(base-r.p);
   if(remaining>0.14) return null;                                // 約12.6ft手前から動作開始
   if(r.slideBase===base && r.slideDir===dir) return null;
+  /* Returning runners protect the bag with a head-first slide even when the
+     current throw has not yet been classified as a close play. This is visual
+     only: speed, p, ETA, and tag timing are unchanged. */
+  if(dir<0) return {mode:'head',base,dir};
   if(dir>0 && (base===2 || base===3)) return {mode:'feet',base,dir};
-  if(runnerClosePlayAtBase(r,base) && (dir<0 || base===1 || base===4 || r.mustReturn))
+  if(runnerClosePlayAtBase(r,base) && (base===1 || base===4 || r.mustReturn))
     return {mode:'head',base,dir};
   return null;
 }
@@ -1509,11 +1532,11 @@ function updateRunnerSlide(r,dt){
 function runnerSlidePose(r){
   if(!(r.slideT>0)) return null;
   if(r.slideMode==='head'){
-    return {lean:1.28,crouch:1.38,rise:-0.52,glove:false,
+    return {lean:1.18,crouch:0,rise:0.34,glove:false,
       armL:-2.95,armR:-2.95,armLZ:-0.18,armRZ:0.18,elbowL:0.05,elbowR:0.05,
       legL:0.25,legR:-0.25,kneeL:0.30,kneeR:0.30};
   }
-  return {lean:-0.72,crouch:1.18,rise:-0.58,glove:false,
+  return {lean:-0.72,crouch:0,rise:0.18,glove:false,
     armL:0.55,armR:0.55,armLZ:-0.12,armRZ:0.12,elbowL:0.45,elbowR:0.45,
     legL:-1.08,legR:-0.76,kneeL:0.12,kneeR:0.20};
 }
@@ -3424,7 +3447,8 @@ function stepFlight(dt){
        （実測: エラー後に時速4ftで1.1秒、録画172217）。転がり終わる地点へ全速で直行する。 */
     const bspg=Math.hypot(ball.vx,ball.vy);
     if(ball.landed && bspg<10){
-      const b2={x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz};
+      const b2={x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz,
+        landed:ball.landed,maxZ:ball.maxZ,la:ball.la};
       for(let i=0;i<480 && Math.hypot(b2.vx,b2.vy)>1; i++) stepBall(b2,PHYS_H);
       retargetFielder(prim,b2.x,b2.y,'slow-roll-replan');
     }else{
