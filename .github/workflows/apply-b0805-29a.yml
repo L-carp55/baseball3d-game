@@ -20,7 +20,9 @@ jobs:
           fetch-depth: 0
 
       - name: Apply deterministic repair
-        run: python tools/patches/apply_b0805_29a.py
+        run: |
+          python tools/patches/apply_b0805_29a.py
+          python tools/patches/allow_b0805_29a_guard.py
 
       - name: Static and focused contracts
         run: |
@@ -32,7 +34,7 @@ jobs:
           assert "const BUILD = 'b0805-29a';" in src
           PY
           git diff --check
-          python -m py_compile _ci_browser_regression_20260809.py tools/patches/apply_b0805_29a.py
+          python -m py_compile _ci_browser_regression_20260809.py tools/patches/apply_b0805_29a.py tools/patches/allow_b0805_29a_guard.py
           node --check /tmp/baseball3d-main.js
           node --check _test_harness_20260804.js
           node --check _test_runner_intent_20260808.js
@@ -64,11 +66,13 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add baseball3d.html \
+            _architecture_guard_20260808.js \
             _test_runner_controls_sliding_20260809.js \
             _test_bounce_slide_ownerfix_20260811.js \
             .github/workflows/baseball3d-regression.yml \
             docs/audits/b0805_29a_entitled_slide_fixes.md \
             tools/patches/apply_b0805_29a.py \
+            tools/patches/allow_b0805_29a_guard.py \
             docs/implementation/B0805_29A_ENTITLED_SLIDE_FIX_TASK_20260811.md
           git commit -m "b0805-29a: tame fly bounces and repair runner slides"
           git push origin HEAD:${GITHUB_REF_NAME}
