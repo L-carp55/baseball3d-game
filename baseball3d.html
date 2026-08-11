@@ -5429,35 +5429,15 @@ function draw(){
    pose の中身: {armL,armR}=腕の前後角 / {armLZ,armRZ}=腕の横開き
                 lean=前傾 / crouch=沈み込み / legL,legR=脚の角度 / turn=上体のひねり */
 function drawFigure(kit, fx, fz, face, runDist, scale, speed01, pose){
-  const P = pose||{};
-  const s = (P.pitchMotion===true && Number.isFinite(P.figureScale)) ? P.figureScale : (scale||1);
-  const sp = clamp(speed01===undefined?1:speed01, 0, 1);
-  const ph = (runDist||0)*0.62;                    // 歩幅の位相
-  const sw = Math.sin(ph) * (0.55+0.65*sp);        // 脚の振り
-  const aw = -Math.sin(ph) * (0.42+0.50*sp);       // 腕は脚と逆
-  /* rise=体全体の上下オフセット(ft)。跳び上がり(正)・飛び込みで地面へ沈む(負)に使う */
-  const bob = (P.rise||0) + (P.crouch!==undefined ? -P.crouch : (sp>0.02 ? Math.abs(Math.cos(ph))*0.13*sp : 0));
-  const lean = P.lean!==undefined ? P.lean : 0.16*sp;
-  const hipY=2.08, shY=3.48, KNEE=-1.0, ELB=-0.74;
-  /* Legacy callers retain the exact one-piece transform.  CMU profile poses alone
-     opt into a pelvis/torso split so legs follow the lower body and arms the torso. */
-  const split = P.pitchMotion===true || P.pelvisYaw!==undefined || P.torsoYaw!==undefined;
-  let base, pelvis, body;
-  if(!split){
-    base = M4.mul(M4.trans(fx,bob,fz), M4.rotY((face||0) + (P.turn||0)));
-    if(s!==1) base = M4.mul(base, M4.scale(s));
-    body = M4.mul(base, M4.rotX(lean));
-    pelvis=body;
-  }else{
-    base = M4.mul(M4.trans(fx,bob,fz), M4.rotY((face||0) + (P.pelvisYaw||0)));
-    if(s!==1) base = M4.mul(base, M4.scale(s));
-    pelvis = M4.mul(base, M4.rotX(P.pelvisLean||0));
-    let torso = M4.mul(pelvis, M4.trans(0,hipY,0));
-    torso = M4.mul(torso, M4.rotY(P.torsoYaw||0));
-    torso = M4.mul(torso, M4.rotZ(P.torsoTilt||0));
-    torso = M4.mul(torso, M4.rotX(P.torsoLean!==undefined?P.torsoLean:lean));
-    body = M4.mul(torso, M4.trans(0,-hipY,0));
-  }
+  /* ★R2-F3（2026-08-11）: 体の変換は buildFigurePoseTransforms() だけが持つ。
+     以前はこの関数の中に base/pelvis/torso/body を作る同じ式をもう一度書いており、
+     QA（actualRenderedFigureHandWorldPosition）と実描画が別々の実装だった。
+     式が一致している間は同じ数字が出るが、片方だけを直した瞬間に
+     「QAはPASSなのに実画面はFAIL」が再発できる。R1のF3 Definition of Done違反。
+     ここでは純粋変換を受け取るだけにして、QAと実描画が同一経路を通ることを保証する。
+     legacy（非split）の一体変換も split の骨盤/胴分割も、分岐ごと helper 側にある。 */
+  const T = buildFigurePoseTransforms(fx, fz, face, runDist, scale, speed01, pose);
+  const {P, s, sp, ph, sw, aw, bob, lean, hipY, shY, KNEE, ELB, split, base, pelvis, body} = T;
   drawMesh(MESH[kit], body);
   /* 走りの既定関節（棒腕・棒脚が人形っぽさの主因だった）:
      ・膝は後ろへ振れている脚が畳まれる（蹴り戻し）

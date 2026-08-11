@@ -236,7 +236,76 @@ for(const segment of ['pre','post']){
   }
 }
 const drawFigure = functionSource(html, 'drawFigure');
-assert(drawFigure.includes('if(!split){') && drawFigure.includes("M4.rotY((face||0) + (P.turn||0))"), 'legacy figure transform remains available');
+const buildTransforms = functionSource(html, 'buildFigurePoseTransforms');
+const qaHandFn = functionSource(html, 'actualRenderedFigureHandWorldPosition');
+/* コードだけを見る。コメント内の関数名で「呼んでいる」と誤判定しないため
+   （初版はこの穴を持っており、呼び出しを消してコメントだけ残す mutant を通していた）。 */
+function codeOnly(source){
+  return source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+}
+const drawFigureCode = codeOnly(drawFigure);
+const qaHandCode = codeOnly(qaHandFn);
+
+/* ---- R2-F3 / R2-F5: QA と実描画が同一の pure transform path を通ること ----
+   R1 では drawFigure が composeFigureSegment だけを共有し、base/pelvis/torso/body は
+   drawFigure 内部で再実装されていた。式が同じうちは 0.642056 ft が出るが、片方だけ
+   変更すると「QA PASS / 実画面 FAIL」が再発できる（F3 の Definition of Done 違反）。
+   旧テストは drawFigure が legacy 変換式を含むことを要求しており、重複そのものを
+   固定していた。以下は「呼び出していること」と「再実装していないこと」の両方を測る。 */
+
+// (1) 実描画が helper を必ず呼ぶ。composeFigureSegment の共有だけでは不足。
+assert(/\bbuildFigurePoseTransforms\s*\(/.test(drawFigureCode),
+  'R2-F3: drawFigure calls buildFigurePoseTransforms (mutation: renderer keeping its own body transform is rejected)');
+// (2) QA 側も同じ helper を経由する。
+assert(/\bbuildFigurePoseTransforms\s*\(/.test(qaHandCode),
+  'R2-F3: QA hand endpoint goes through the same buildFigurePoseTransforms path');
+// (3) helper が返す変換を drawFigure が「受け取って」使う。自前計算の再導入を禁止する。
+for(const field of ['body','pelvis','split','hipY','shY','KNEE','ELB']){
+  assert(new RegExp('[{,]\\s*'+field+'\\s*[,}]').test(drawFigureCode),
+    'R2-F3: drawFigure consumes '+field+' from the shared transform result');
+}
+/* (4) body/base/pelvis/torso 変換の再実装 mutation を検出する。
+   これらの式が drawFigure 本体に現れたら、helper を呼んでいても二重実装＝FAIL。 */
+const duplicatedTransformSignatures = [
+  'M4.rotY((face||0) + (P.turn||0))',
+  'M4.rotY((face||0)+(P.turn||0))',
+  'M4.rotY((face||0) + (P.pelvisYaw||0))',
+  'M4.rotY((face||0)+(P.pelvisYaw||0))',
+  'M4.rotX(P.pelvisLean||0)',
+  'M4.trans(0,-hipY,0)',
+  'M4.rotZ(P.torsoTilt||0)'
+];
+for(const signature of duplicatedTransformSignatures){
+  assert(!drawFigureCode.includes(signature),
+    'R2-F5 mutation: drawFigure must not re-implement the body transform ('+signature+')');
+}
+assert(!/\blet\s+base\s*,\s*pelvis\s*,\s*body\b/.test(drawFigureCode) && !/\bconst\s+split\s*=/.test(drawFigureCode),
+  'R2-F5 mutation: drawFigure must not redeclare its own base/pelvis/body/split locals');
+/* (5) legacy（非split）一体変換と split 分岐は helper 側に温存されていること。
+   重複を消した結果 legacy 挙動ごと落とす、という別方向の退行を防ぐ。 */
+assert(buildTransforms.includes('if(!split){') && buildTransforms.includes('M4.rotY((face||0)+(P.turn||0))'),
+  'R2-F3: legacy one-piece transform remains available inside the shared helper');
+assert(buildTransforms.includes('M4.rotY((face||0)+(P.pelvisYaw||0))') && buildTransforms.includes('M4.trans(0,-hipY,0)'),
+  'R2-F3: pelvis/torso split remains available inside the shared helper');
+/* (6) 「QA だけ helper・renderer は別実装」という mutation を検出する。
+   helper 呼び出しを drawFigure から抜いた版が、必ず (1) で落ちることを実測で示す。 */
+const rendererBypassMutant = codeOnly(drawFigure).replace(/\bbuildFigurePoseTransforms\s*\(/g, 'inlineFigurePoseTransforms(');
+assert(!/\bbuildFigurePoseTransforms\s*\(/.test(rendererBypassMutant),
+  'R2-F5 mutation: renderer-bypass mutant is actually constructed');
+assert(/\bbuildFigurePoseTransforms\s*\(/.test(qaHandCode) && !/\bbuildFigurePoseTransforms\s*\(/.test(rendererBypassMutant),
+  'R2-F5 mutation: QA-only-helper split is detected (renderer must not diverge from QA)');
+/* (7) composeFigureSegment の共有「だけ」では PASS しないことを示す。
+   segment helper を使ったまま body 変換を再実装した mutant が (4) の判定で落ちる。 */
+const segmentOnlyMutant = codeOnly(drawFigure).replace(
+  /const T = buildFigurePoseTransforms\([^;]*;/,
+  'const P=pose||{}; let base,pelvis,body; base=M4.rotY((face||0) + (P.turn||0));');
+assert(segmentOnlyMutant.includes('composeFigureSegment(anchor,x,y,ang,zang,bendSigned,joint)'),
+  'R2-F5 mutation: segment-only mutant still shares composeFigureSegment');
+assert(duplicatedTransformSignatures.some(signature=>segmentOnlyMutant.includes(signature)),
+  'R2-F5 mutation: sharing composeFigureSegment alone does not satisfy the shared-transform contract');
+assert(!/\bbuildFigurePoseTransforms\s*\(/.test(segmentOnlyMutant),
+  'R2-F5 mutation: segment-only mutant really drops the shared transform call');
+
 assert(drawFigure.includes('composeFigureSegment(anchor,x,y,ang,zang,bendSigned,joint)'), 'drawFigure consumes the shared pure segment helper');
 assert(drawFigure.includes("P.gloveSide==='R'?fmR.hand:fmL.hand"), 'profile mirror controls glove side without changing legacy default');
 assert.strictEqual(sha(functionSource(html,'fielderReadyPose')), BASELINE.fielderReadyPose, 'legacy fielder poses are unchanged');
