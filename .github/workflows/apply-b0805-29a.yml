@@ -1,0 +1,74 @@
+name: Apply b0805-29a owner fixes
+
+"on":
+  push:
+    branches:
+      - "agent/b0805-29a-entitled-slide-fixes"
+    paths:
+      - ".github/workflows/apply-b0805-29a.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply deterministic repair
+        run: python tools/patches/apply_b0805_29a.py
+
+      - name: Static and focused contracts
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('baseball3d.html').read_text(encoding='utf-8')
+          a=src.index('<script>')+len('<script>'); b=src.index('</script>',a)
+          Path('/tmp/baseball3d-main.js').write_text(src[a:b],encoding='utf-8')
+          assert "const BUILD = 'b0805-29a';" in src
+          PY
+          git diff --check
+          python -m py_compile _ci_browser_regression_20260809.py tools/patches/apply_b0805_29a.py
+          node --check /tmp/baseball3d-main.js
+          node --check _test_harness_20260804.js
+          node --check _test_runner_intent_20260808.js
+          node --check _test_runner_controls_sliding_20260809.js
+          node --check _test_bounce_slide_ownerfix_20260811.js
+          node --check _test_fielding_assignment_20260808.js
+          node --check _test_reach_model_20260808.js
+          node --check _test_defense_action_policy_20260809.js
+          node --check _test_force_chain_decision_20260809.js
+          node --check _test_breakaway_transfer_context_20260810.js
+          node --check _test_thrower_footwork_20260810.js
+          node --check _architecture_guard_20260808.js
+          node _architecture_guard_20260808.js
+          node _test_runner_intent_20260808.js
+          node _test_runner_controls_sliding_20260809.js
+          node _test_bounce_slide_ownerfix_20260811.js
+          node _test_fielding_assignment_20260808.js
+          node _test_reach_model_20260808.js
+          node _test_defense_action_policy_20260809.js
+          node _test_force_chain_decision_20260809.js
+          node _test_breakaway_transfer_context_20260810.js baseball3d.html
+          node _test_thrower_footwork_20260810.js baseball3d.html
+
+      - name: Full browser baseline and behavioral mutations
+        run: python _ci_browser_regression_20260809.py
+
+      - name: Commit validated implementation
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add baseball3d.html \
+            _test_runner_controls_sliding_20260809.js \
+            _test_bounce_slide_ownerfix_20260811.js \
+            .github/workflows/baseball3d-regression.yml \
+            docs/audits/b0805_29a_entitled_slide_fixes.md \
+            tools/patches/apply_b0805_29a.py \
+            docs/implementation/B0805_29A_ENTITLED_SLIDE_FIX_TASK_20260811.md
+          git commit -m "b0805-29a: tame fly bounces and repair runner slides"
+          git push origin HEAD:${GITHUB_REF_NAME}
