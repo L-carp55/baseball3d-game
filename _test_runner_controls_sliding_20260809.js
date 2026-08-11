@@ -71,6 +71,9 @@ r=ctx.makeRunner(1.88,3,1,24);ctx.updateRunnerSlide(r,0);assert(r.slideT===0,'ru
 ctx.throwPlay={target:1,stage:'fly',kind:'infield',decisionMargin:0.1};r=ctx.makeRunner(0.9,1,0,24);ctx.updateRunnerSlide(r,0);assert(r.slideMode==='head','no close headfirst at first');
 ctx.throwPlay={target:4,stage:'catch',kind:'outfield',decisionMargin:0.2};r=ctx.makeRunner(3.9,4,3,24);ctx.updateRunnerSlide(r,0);assert(r.slideMode==='head','no close headfirst at home');
 ctx.throwPlay={target:2,stage:'fly',kind:'pickoff',decisionMargin:0.1};r=ctx.makeRunner(2.12,2,2,24);r.mustReturn=true;ctx.updateRunnerSlide(r,0);assert(r.slideMode==='head','no headfirst return slide');
+clear();r=ctx.makeRunner(2.12,2,2,24);ctx.updateRunnerSlide(r,0);assert(r.slideMode==='head'&&r.slideDir===-1,'ordinary return did not slide headfirst');
+let pose=ctx.runnerSlidePose(r);assert((pose.rise||0)-(pose.crouch||0)>=0.25,'headfirst slide body is below the field');
+clear();r=ctx.makeRunner(1.88,2,1,24);ctx.updateRunnerSlide(r,0);pose=ctx.runnerSlidePose(r);assert((pose.rise||0)-(pose.crouch||0)>=0.10,'feet-first slide body is below the field');
 ctx.throwPlay={target:1,stage:'transfer',kind:'infield',decisionMargin:1.2};r=ctx.makeRunner(0.9,1,0,24);ctx.updateRunnerSlide(r,0);assert(r.slideT===0,'routine first-base arrival slid');
 
-console.log('targeted b0805-25 runner controls/sliding PASS');
+console.log('targeted b0805-29a runner controls/sliding PASS');

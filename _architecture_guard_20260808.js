@@ -31,7 +31,7 @@ const checks=[];
 function check(name,ok,detail){checks.push({name,ok:!!ok,detail});}
 
 const build=(script.match(/const BUILD = '([^']+)'/)||[])[1];
-check('BUILD stamp present',/^b\d{4}-\d+$/.test(build||''),build);
+check('BUILD stamp present',/^b\d{4}-\d+[a-z]?$/.test(build||''),build);
 
 const directGoal=count(/\b[A-Za-z_$][\w$]*\.goal\s*=(?!=)/g,clean);
 const directAutoGoal=count(/\b[A-Za-z_$][\w$]*\.autoGoal\s*=(?!=)/g,clean);
