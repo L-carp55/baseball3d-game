@@ -7,7 +7,8 @@
 | repair base branch | `codex/b0805-30-pitch-motion-bank-cmu124-r1` |
 | repair base exact SHA | `8599274e7be1ec2cf0d7b12570dd351d51c2b0a4` |
 | gameplay canonical base (unchanged) | `60b993b73fed854934a976e45e8feb9437deb584` (b0805-29) |
-| implementation SHA | see §9 (recorded after commit) |
+| implementation SHA | `ab81c9d2a8b67ba2404ae496d262d3a42266f406` |
+| `baseball3d.html` SHA-256 at that commit | `3a84f3249bb761c70c1007fd924a8e63ff6f464b309f7f1508ca33842f821370` |
 | BUILD constant | `b0805-30` (unchanged — R2 is an architecture repair, not a new motion revision) |
 | scope | **R2-F3 and R2-F5 only.** No M1.1, no pre-release pacing, no P1/E1, no perception fielding AI, no ball physics, no Issue #30 work, no relay-loop work, no b29a integration, no PR, no merge. |
 
