@@ -11,8 +11,7 @@ Worker: Grok Build (first implementation task after the primary-worker migration
 ## 0. SHAs
 
 - Exact repair base (R1a final HEAD): `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
-- Implementation commit (this R1b): recorded in a follow-up commit after the primary commit, same precedent as R1/R1a/R2/M1 final validation.
-- Final HEAD: recorded in the same follow-up.
+- Implementation commit (this R1b): `4d1b9f039b3f6028f31290eb1f69848890539700`. (This follow-up commit, which only fills in this one SHA line, mirrors R1/R1a/R2/M1 final validation's own self-referential SHA commits.)
 - `baseball3d.html` SHA-256 after R1b: `5cdd30fc3e075051df75cf8e5a20e2f50729064492125ece70d6e79e8acc7d73` (legitimately changed from R1a's `22350d3ed2fdb9f59c5aba49c330932f6755f99a2101c210d3962b4b3029bf3e` — this repair edits production code).
 
 Independently confirmed before editing:
