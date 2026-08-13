@@ -46,30 +46,108 @@ function sha(text) { return crypto.createHash('sha256').update(text.replace(/\r\
 
 /* =====================================================================================
    Part 1 — classifyBattedBallPhysical: pure-function contract (assertions 2, 3, 4, 9)
-   ===================================================================================== */
+
+   R1a (docs/audits/b0805_30_owner_closure_r1_browser_redteam_20260813.md, agent/
+   research-baseball-motion-ai): independent red-team found that R1's angle-only
+   classifyBattedBallPhysical disagreed with the existing airborne classifyCaughtBall()
+   for any 6-20 degree contact whose real trajectory apex reaches >=22ft -- the same
+   physical contact could be "ライナー" if it survived to the infield result path but
+   "フライ" if a fielder caught it, which is not a stable single physical identity.
+   classifyBattedBallPhysical now shares one angle/apex categorization table
+   (categorizeAirborneByAngleApex) with classifyCaughtBall, fed by a contact-time apex
+   prediction (predictBattedBallApexFt) that reuses the real stepBall() physics with no
+   fielder/defender input at all -- not a defender-reach prediction, and not a duplicated
+   re-implementation of the trajectory math. classifyBattedBallPhysical now needs more of
+   the real source in scope than just its own function body, so the pure-function harness
+   below bundles the real categorizeAirborneByAngleApex/predictBattedBallApexFt/stepBall
+   sources plus their constant dependencies (RAD/DRAG/BACKSTOP_R/clamp), not
+   re-implementations of them. */
+function constSource(source, name){
+  const re = new RegExp('const\\s+' + name + '\\s*=');
+  const match = re.exec(source);
+  assert(match, 'missing const ' + name);
+  const start = match.index;
+  const end = source.indexOf(';', start);
+  assert(end >= 0, 'unterminated const ' + name);
+  return source.slice(start, end + 1);
+}
+
 const classifySrc = functionSource(html, 'classifyBattedBallPhysical');
 assert(!/canCatchAir/.test(classifySrc),
-  'assertion 2 (§5.2): classifyBattedBallPhysical does not read canCatchAir anywhere in its body');
+  'assertion 2 (§5.2): classifyBattedBallPhysical does not read canCatchAir anywhere in its own body');
 assert(!/\bpitch\.|\bthrowPlay\b|\bfielders\b|\bupdatePitch\b|\bdoSwing\b/.test(classifySrc),
-  'assertion 9 (§5.9): classifier has no pitch/throw/fielding coupling');
+  'assertion 9 (§5.9): classifier has no pitch/throw/fielding coupling in its own body');
 
-const classifyContext = vm.createContext({});
-vm.runInContext(classifySrc, classifyContext);
-const classify = la => vm.runInContext('classifyBattedBallPhysical({la:' + la + '})', classifyContext);
+const apexSrc = functionSource(html, 'predictBattedBallApexFt');
+assert(!/\bfielders\b|\bplanPlay\b|\bprim\b|\breachTimeToPoint\b|\bcanCatchAir\b/.test(apexSrc),
+  'R1a requirement 6/design: predictBattedBallApexFt has no fielder/defender-reach input -- it is a trajectory prediction, not a catch-feasibility prediction');
+assert(apexSrc.includes('stepBall('),
+  'R1a requirement 7: apex prediction reuses the real stepBall() physics rather than re-deriving projectile motion');
 
-assert.strictEqual(classify(9), 'ライナー', 'assertion 3 (§5.3): 9° owner example is ライナー');
-assert.strictEqual(classify(11), 'ライナー', 'assertion 3 (§5.3): 11° owner example is ライナー');
-assert.strictEqual(classify(1), 'ゴロ', 'assertion 4 (§5.4): ~1° owner-sample-style contact is ground category, not turned into a liner');
-assert.strictEqual(classify(-8), 'ゴロ', '§3 minimum pin: a normal negative-angle grounder is ゴロ');
-assert.strictEqual(classify(0), 'ゴロ', 'boundary: la=0 is ground category');
-assert.strictEqual(classify(5), 'ゴロ', 'boundary: the chosen 5° ground/liner threshold is inclusive on the ground side');
-assert.strictEqual(classify(6), 'ライナー', 'boundary: 6° (just above the chosen threshold) is already a liner');
-assert.strictEqual(classify(20), 'ライナー', 'boundary: la=20 (existing classifyCaughtBall liner ceiling) stays a liner');
-assert.strictEqual(classify(21), 'フライ', 'boundary: la=21 crosses into fly, matching classifyCaughtBall\'s existing >20 boundary');
-assert.strictEqual(classify(30), 'フライ', '§3 minimum pin: a normal mid/high fly example is フライ');
-assert.strictEqual(classify(45), 'フライ', 'boundary: la=45 (existing classifyCaughtBall popup floor) stays a fly');
-assert.strictEqual(classify(46), 'ポップフライ', 'boundary: la=46 crosses into popup, matching classifyCaughtBall\'s existing >45 boundary');
-assert.strictEqual(classify(55), 'ポップフライ', '§3 minimum pin: a high popup example is ポップフライ');
+const categorizeSrc = functionSource(html, 'categorizeAirborneByAngleApex');
+const classifyCaughtSrcForShare = functionSource(html, 'classifyCaughtBall');
+assert(classifyCaughtSrcForShare.includes('categorizeAirborneByAngleApex('),
+  'R1a requirement 7: classifyCaughtBall shares the same angle/apex categorization table (categorizeAirborneByAngleApex) rather than keeping a second, independent copy of the boundaries');
+assert(classifySrc.includes('categorizeAirborneByAngleApex(') && classifySrc.includes('predictBattedBallApexFt('),
+  'R1a requirement 6/7: classifyBattedBallPhysical routes non-ground contacts through the shared categorization table fed by the contact-time apex prediction');
+
+const SHARED_SUPPORT = [
+  constSource(html, 'RAD'),
+  constSource(html, 'DRAG'),
+  constSource(html, 'BACKSTOP_R'),
+  constSource(html, 'clamp'),
+  functionSource(html, 'stepBall'),
+  categorizeSrc,
+  apexSrc,
+  classifySrc
+].join('\n');
+const classifyContext = vm.createContext({ Math });
+vm.runInContext(SHARED_SUPPORT, classifyContext);
+const classify = (exit, la) => vm.runInContext('classifyBattedBallPhysical({exit:' + exit + ',la:' + la + '})', classifyContext);
+
+/* Owner pins use realistic exit velocities for their angle so the apex prediction stays
+   physically plausible (a "9° liner" at a token 1mph exit velocity is not a real contact
+   and would trivially stay under any apex threshold regardless of what the categorization
+   table does -- these are the same exit velocities used in the browser fixtures, §5). */
+assert.strictEqual(classify(60, 9), 'ライナー', 'assertion 3 (§5.3): 9° owner example is ライナー');
+assert.strictEqual(classify(50, 11), 'ライナー', 'assertion 3 (§5.3): 11° owner example is ライナー');
+assert.strictEqual(classify(45, 1), 'ゴロ', 'assertion 4 (§5.4): ~1° owner-sample-style contact is ground category, not turned into a liner');
+assert.strictEqual(classify(60, -8), 'ゴロ', '§3 minimum pin: a normal negative-angle grounder is ゴロ');
+assert.strictEqual(classify(60, 0), 'ゴロ', 'boundary: la=0 is ground category');
+assert.strictEqual(classify(60, 5), 'ゴロ', 'boundary: the chosen 5° ground/liner threshold is inclusive on the ground side');
+assert.strictEqual(classify(60, 6), 'ライナー', 'boundary: 6° at a modest exit velocity (low apex) is a liner');
+assert.strictEqual(classify(95, 30), 'フライ', '§3 minimum pin: a normal mid/high fly example is フライ');
+assert.strictEqual(classify(95, 55), 'ポップフライ', '§3 minimum pin: a high popup example is ポップフライ');
+assert.strictEqual(classify(95, 46), 'ポップフライ', 'boundary: la=46 crosses into popup, matching classifyCaughtBall\'s existing >45 boundary regardless of apex');
+
+/* =====================================================================================
+   Part 1b — cross-classifier compatibility (R1a requirement 5/8, assertion 8 extended):
+   the exact incompatibility the red-team found. A 6-20° contact whose real predicted
+   apex reaches >=22ft must be フライ under BOTH classifyBattedBallPhysical (contact-time)
+   and classifyCaughtBall (if it had been caught with that same apex) -- not ライナー under
+   one and フライ under the other for the identical physical trajectory.
+   ===================================================================================== */
+const apexContext = vm.createContext({ Math });
+vm.runInContext([constSource(html,'RAD'), constSource(html,'DRAG'), constSource(html,'BACKSTOP_R'),
+  constSource(html,'clamp'), functionSource(html,'stepBall'), apexSrc].join('\n'), apexContext);
+const predictApex = (exit, la) => vm.runInContext('predictBattedBallApexFt({exit:' + exit + ',la:' + la + '})', apexContext);
+const categorizeContext = vm.createContext({});
+vm.runInContext(categorizeSrc, categorizeContext);
+const categorize = (la, apexZ) => vm.runInContext('categorizeAirborneByAngleApex(' + la + ',' + apexZ + ')', categorizeContext);
+
+const HIGH_APEX_CASE = { exit: 105, la: 18 };  // the red-team's flagged 15-20° high-apex case
+const highApexPredicted = predictApex(HIGH_APEX_CASE.exit, HIGH_APEX_CASE.la);
+assert(highApexPredicted >= 22, 'sanity: the 15-20° high-apex fixture case really does predict an apex >=22ft (predicted ' + highApexPredicted + 'ft) -- otherwise it is not exercising the overlap this repair targets');
+const highApexPhysical = classify(HIGH_APEX_CASE.exit, HIGH_APEX_CASE.la);
+const highApexIfCaught = categorize(HIGH_APEX_CASE.la, highApexPredicted);
+assert.strictEqual(highApexPhysical, 'フライ', 'R1a requirement 5: 15-20° high-apex contact (predicted apex ' + highApexPredicted + 'ft) is フライ under classifyBattedBallPhysical, matching existing caught-air semantics for the same apex');
+assert.strictEqual(highApexPhysical, highApexIfCaught, 'R1a requirement 8: contact-time physical type and the caught-air category computed from the same predicted apex agree for the overlap case');
+
+for (const [exit, la] of [[60, 9], [50, 11], [95, 30], [95, 46]]) {
+  const apex = predictApex(exit, la);
+  assert.strictEqual(classify(exit, la), categorize(la, apex),
+    'R1a requirement 8: contact-time physical type agrees with the shared category table for the same (angle, predicted apex) at exit=' + exit + 'mph la=' + la + 'deg (apex=' + apex + 'ft)');
+}
 
 /* =====================================================================================
    Part 2 — startFlight wiring and immutability (assertions 1, 5 — structural half)
@@ -90,15 +168,17 @@ assert.strictEqual(reassignments, 0,
   'assertion 5 (§5.5) structural half: no code path reassigns ball.battedType after construction (0 `ball.battedType=` occurrences; the constructor uses object-literal `battedType:`, not this form)');
 
 /* =====================================================================================
-   Part 3 — untouched-invariant pins (assertion 8, 9): existing flyKind/caught-ball rule
-   semantics, canCatchAir feasibility computation, and pitch/throw physics must be
-   byte-identical to what R1 started from. updatePitch/doSwing/pitchPos baselines are the
-   exact same SHA-256 constants already pinned in _test_pitch_motion_bank_cmu124_20260811.js
-   (BASE_SHA 60b993b7...); classifyCaughtBall/flyOutLabel/planPlay/beginThrowPhase are
-   pinned here for the first time, computed from this R1 branch's pre-edit source.
+   Part 3 — untouched-invariant pins (assertion 8, 9): canCatchAir feasibility computation
+   and pitch/throw physics must be byte-identical to what R1 started from.
+   updatePitch/doSwing/pitchPos baselines are the exact same SHA-256 constants already
+   pinned in _test_pitch_motion_bank_cmu124_20260811.js (BASE_SHA 60b993b7...);
+   flyOutLabel/planPlay/beginThrowPhase are pinned here, computed from this R1 branch's
+   pre-R1a source. classifyCaughtBall is intentionally NOT byte-pinned here: R1a legitimately
+   refactors its body to share categorizeAirborneByAngleApex() (its SOURCE changes), while
+   its BEHAVIOR must stay identical -- that is checked below by re-running the exact test19
+   input/output pairs against the real function, not by hashing its source text.
    ===================================================================================== */
 const UNTOUCHED_BASELINE = Object.freeze({
-  classifyCaughtBall: '9911eba72ceaa05bb156f50ac9eaab2f5eb64284a791b2ad756c0075bdd84137',
   flyOutLabel: '15bf01b7d974b57c674b3f6e88830c4a681d28c766e8030867c9eab41f543c35',
   planPlay: 'a19b08773d3c0d48ec6e0c252311ab051dfdee5cc073160ddb95e49795ea9609',
   beginThrowPhase: 'b43e31d7672244cc897a0d832489bea876cf2905d763a32d1e90be82b8b4498f',
@@ -108,11 +188,11 @@ const UNTOUCHED_BASELINE = Object.freeze({
 });
 for (const [name, expected] of Object.entries(UNTOUCHED_BASELINE)) {
   assert.strictEqual(sha(functionSource(html, name)), expected,
-    'assertion 8/9: ' + name + ' is byte-identical to its pre-R1 source (untouched by the batted-ball identity recovery)');
+    'assertion 8/9: ' + name + ' is byte-identical to its pre-R1a source (untouched by this recovery)');
 }
 
 const ccbContext = vm.createContext({});
-vm.runInContext(functionSource(html, 'classifyCaughtBall'), ccbContext);
+vm.runInContext(categorizeSrc + '\n' + classifyCaughtSrcForShare, ccbContext);
 const classifyCaught = b => vm.runInContext('classifyCaughtBall(' + JSON.stringify(b) + ')', ccbContext);
 assert.strictEqual(classifyCaught({ landed: false, la: 12, maxZ: 6.5, z: 5 }), 'ライナー', 'assertion 8: classifyCaughtBall low no-bounce liner unchanged (test19 parity)');
 assert.strictEqual(classifyCaught({ landed: false, la: 32, maxZ: 42, z: 5 }), 'フライ', 'assertion 8: classifyCaughtBall normal fly unchanged (test19 parity)');
@@ -203,13 +283,21 @@ function trial(exit, la, spray, label){
   return {label, preType, landedType, canCatchAirAtLanding, recBtNonEmpty, sawInfieldKind,
     lastPlay: S.lastPlay, outs: S.outs};
 }
+function apexOnlyTrial(exit, la, label){
+  window.__seedRandom();
+  newGame();
+  S.bases=[null,null,null];
+  startFlight({exit, la, spray:0}, 1, [0, 2.5, 1.4]);
+  return {label, preType: ball.battedType};
+}
 return JSON.stringify([
   trial(60, 9, 0, 'liner_9deg'),
   trial(60, 9, -10, 'liner_9deg_mirror'),
   trial(50, 11, 0, 'liner_11deg'),
   trial(50, 11, -5, 'liner_11deg_mirror'),
   trial(45, 1, 0, 'grounder_1deg'),
-  trial(60, -5, 0, 'grounder_negative')
+  trial(60, -5, 0, 'grounder_negative'),
+  apexOnlyTrial(105, 18, 'highapex_18deg')
 ]);
 `;
 
@@ -262,5 +350,13 @@ for (const label of ['grounder_1deg', 'grounder_negative']) {
   assert(f.lastPlay && f.lastPlay.includes('ゴロ'), 'adjacent-case check: ' + label + ' genuine grounder still reads ゴロ through the same code path (lastPlay=' + f.lastPlay + ')');
   assert.strictEqual(f.outs, 1, label + ' is genuinely an out');
 }
+
+/* R1a requirement: at least one real startFlight/physics fixture for the high-apex
+   overlap case, not only a synthetic classifier-argument check (Part 1b already covers
+   the synthetic side; this ties it to the real, real-physics browser execution). */
+const highApexFixture = byLabel['highapex_18deg'];
+assert(highApexFixture, 'fixture highapex_18deg ran');
+assert.strictEqual(highApexFixture.preType, 'フライ', 'R1a requirement 5 (real fixture): a real startFlight() 18°/105mph contact -- the red-team\'s flagged case -- is フライ, not ライナー');
+assert.strictEqual(highApexFixture.preType, highApexPhysical, 'the real browser-executed startFlight() result agrees with Part 1b\'s isolated vm-sandbox prediction for the identical (exit, la)');
 
 console.log(JSON.stringify({ status: 'PASS', fixtures }, null, 1));

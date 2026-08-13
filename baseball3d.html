@@ -4373,9 +4373,13 @@ function updateThrow(dt){
 function classifyBattedBallPhysical(c){
   const la = c.la||0;
   if(la<=5) return 'ゴロ';
-  if(la<=20) return 'ライナー';
-  if(la<=45) return 'フライ';
-  return 'ポップフライ';
+  /* ★2026-08-13 R1a: 空中の角度/頂点判定は、捕球時のclassifyCaughtBall()と
+     categorizeAirborneByAngleApex()を共有する（下で定義。関数宣言はhoistされる
+     ので定義順に依存しない）。頂点はpredictBattedBallApexFt()が守備に一切触れず
+     stepBall()だけで予測する。角度だけで判定していた旧実装は、15-20°で実際には
+     22ft以上上がる強い当たりを、捕られなければライナーと言い、捕られればフライと
+     言う自己矛盾を持っていた（Browser GPT red-team 20260813が発見）。 */
+  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c));
 }
 function startFlight(c, powerMul, from){
   S.errorBy=null; S.playClock=0; S.throwCount=0;   // このプレーの記録をやり直す
@@ -4476,12 +4480,41 @@ function updateFlight(dt){
 }
 /* 捕球した打球の分類。resolveCatch はノーバウンド捕球の経路なので、
    低い弾道を高さだけで「ゴロ」に落とさない。OI-251/253 の再発防止として、
-   接地の有無を最優先し、空中の低い強い打球はライナーとして扱う。 */
+   接地の有無を最優先し、空中の低い強い打球はライナーとして扱う。
+   ★2026-08-13 R1a(Browser GPT red-team owner_closure_r1_browser_redteam_20260813):
+   この角度/頂点の境界表は、接触時の不変物理識別(classifyBattedBallPhysical)とも
+   共有する（下のcategorizeAirborneByAngleApex）。表を2つ持つと、同じ物理軌道でも
+   「捕球されたか」だけで種別が変わってしまう（15-20°で高く上がる強い当たりが、
+   捕られればフライ、捕られなければ角度だけでライナー、という矛盾が実際に発生した）。
+   ここでの入出力（bのlanded/la/maxZ・戻り値）は元の実装から一切変えていない——
+   実測maxZをそのまま境界表へ渡すだけで、境界表自体を別関数へ切り出しただけ。 */
+function categorizeAirborneByAngleApex(la, apexZ){
+  if((la||0)>45) return 'ポップフライ';
+  if((la||0)<=20 && (apexZ||0)<22) return 'ライナー';
+  return 'フライ';
+}
 function classifyCaughtBall(b){
   if(b.landed) return 'ゴロ';
-  if((b.la||0)>45) return 'ポップフライ';
-  if((b.la||0)<=20 && (b.maxZ||b.z||0)<22) return 'ライナー';
-  return 'フライ';
+  return categorizeAirborneByAngleApex(b.la, b.maxZ||b.z);
+}
+/* 接触時点の物理入力(exit/la)だけから、守備に一切触れずに頂点高を予測する。
+   plan/canCatchAirが使うplanPlay()は野手の到達時間まで計算するため使えない
+   （守備予測の混入はR1aで明示的に禁止されている）。stepBall()自体は野手を
+   参照しない純粋な弾道物理関数なので、それをそのまま再利用する（式を書き写さない）。
+   spray角は無視してよい: 水平速度の大きさ|vx,vy|はspray角に依らずv*cos(la)で一定
+   （sin²+sp²=1）なので、抗力（全体の速さにだけ依存）を含む鉛直方向の挙動は
+   spray=0で計算しても実際の弾道と完全に一致する。 */
+function predictBattedBallApexFt(c){
+  const v=(c.exit||0)*1.467, laRad=(c.la||0)*RAD;
+  const b={x:0,y:0,z:1.4,vx:0,vy:v*Math.cos(laRad),vz:v*Math.sin(laRad),
+    bs:clamp(((c.la||0)+6)/30,-0.4,1.1), ss:0};
+  let apex=b.z;
+  for(let i=0;i<1200;i++){
+    stepBall(b,1/240);
+    if(b.z>apex) apex=b.z;
+    if(b.z<=0.02 && i>10) break;
+  }
+  return apex;
 }
 /* 飛び込み量は横方向の不足だけで決める。高さは jump/reach が担当する。
    3D距離をそのまま dive 判定に使うと、真上の球でも「横に届かない」と誤解して

@@ -98,6 +98,16 @@ const MUTANTS = [
         "  if(la<=15) return 'ゴロ';  // mutation: 9°/11° owner examples become grounders",
         'M-R1-BT-6 anchor');
     }
+  },
+  {
+    id: 'M-R1A-COMPAT-1',
+    why: 'recreate the R1a-flagged defect: classify every la<=20 airborne contact as ライナー again, regardless of predicted physical apex (bypassing the shared categorizeAirborneByAngleApex/predictBattedBallApexFt contract)',
+    apply(source) {
+      return replaceOnce(source,
+        "  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c));\n}",
+        "  if(la<=20) return 'ライナー';  // mutation: angle-only again, ignores apex\n  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c));\n}",
+        'M-R1A-COMPAT-1 anchor');
+    }
   }
 ];
 
