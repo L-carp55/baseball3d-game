@@ -1,11 +1,11 @@
 # Baseball3D CURRENT STATE
 
-Last updated: 2026-08-13
+Last updated: 2026-08-14
 Authority: current GitHub remote + independent Browser GPT audits. If an older chat, PR body, Issue body, worker self-report, or status doc conflicts with this file, verify the remote code/ancestry and prefer the newer independent audit.
 
 ## Primary worker policy
 
-New implementation work is now vendor-neutral.
+New implementation work is vendor-neutral.
 
 - primary implementation worker: **Grok Build**
 - fallback/alternate worker: **Codex local/CLI**
@@ -18,7 +18,7 @@ Unity worker policy:
 - `docs/unity/AI_WORKER_POLICY_20260813.md`
 - policy commit: `daf2a06dc7aa640db7d6dcc883c10eee5c90bb68`
 
-Do not rely on Claude Code chat history for continuation. Git/task/test state is authoritative.
+Do not rely on Claude Code/Grok chat history for continuation. Git/task/test state is authoritative.
 
 ## Canonical gameplay ancestor
 
@@ -41,11 +41,15 @@ M1 Final Validation task branch:
 - `claude/b0805-30-m1-final-validation@8f0f389f637fe892c7b7356fc12361937a94fb08`
 - status: **PAUSED**
 
-Do not resume M1 Final Validation or P1 while owner-feedback recovery / Unity adoption gate is active.
+Do not resume M1 Final Validation or P1 while the Unity adoption gate is active.
 
-## Owner Closure Recovery — current exact state
+## Owner Closure Recovery — R1 implementation-review gate passed
 
 Tracking Issue: #33
+
+The batted-ball identity recovery was completed through R1 -> R1a -> R1b. Browser GPT has now approved the implementation candidate through R1b.
+
+This does **not** mean the owner-feedback item or Issue #33 is CLOSED. The project closure rule still requires integration into an owner-playable line and owner verification where applicable.
 
 ### R1 — lost b24 batted-ball identity recovery
 
@@ -55,16 +59,16 @@ Branch:
 - implementation: `bee15b6594498ef91440b9629604cdac18430c6d`
 - final HEAD: `5088aeefd0ee632282c36120185dcc97ff2fc880`
 
-R1 successfully restored the core boundary:
+Recovered:
 
-- `ball.battedType` exists at contact;
-- it is independent of `canCatchAir`;
-- it is immutable through landing;
-- recorder `bt` is populated;
-- relevant result paths read preserved identity;
-- focused/mutation coverage was added.
+- `ball.battedType` established at contact;
+- independence from `canCatchAir`;
+- immutability through landing;
+- recorder `bt` population;
+- result paths using preserved identity;
+- focused/mutation coverage.
 
-R1 was not finally approved because Browser GPT found an R1/R1a compatibility problem in liner/fly semantics.
+R1 itself exposed the first compatibility gap and proceeded to R1a.
 
 ### R1a — shared angle/apex category contract
 
@@ -74,64 +78,83 @@ Branch:
 - implementation: `90514d7b592b63a993a1374eb6a905c9e4e38880`
 - final HEAD: `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
 
-R1a correctly:
+Added:
 
-- extracted shared `categorizeAirborneByAngleApex(la, apexZ)`;
-- kept caught-air behavior compatible;
-- added field-independent `stepBall()` apex prediction;
-- fixed the 105mph/18deg high-apex overlap case;
-- kept prior R1 mutations killed and added R1a mutation coverage.
+- shared `categorizeAirborneByAngleApex(la, apexZ)`;
+- field-independent `stepBall()` apex prediction;
+- fix for the 105mph/18deg high-apex liner/fly mismatch;
+- R1a mutation coverage.
 
-**R1a verdict: BLOCKED FOR R1b.**
+Browser GPT then found that the predictor still assumed fixed initial z=1.4 instead of the actual production launch height, leading to R1b.
 
-Browser GPT independent red-team v2 found:
+### R1b — actual contact-height compatibility — APPROVED
 
-- predictor initializes trajectory at fixed `z=1.4`;
-- real `startFlight()` launches from `z=from[1]`;
-- normal batting passes `from[1]=Math.max(1.2,pitch.ty)`;
-- therefore contact-time classifier can still predict a different physical trajectory from the one actually launched near the absolute 22ft liner/fly apex boundary.
+Branch:
 
-Authority:
+- `agent/b0805-30-owner-closure-r1b-contact-height-compat`
+- exact base: `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
+- implementation: `4d1b9f039b3f6028f31290eb1f69848890539700`
+- final HEAD: `33b5518a3eb9e76e6525dc7e23556c55ed88ec5d`
 
-- `docs/audits/b0805_30_owner_closure_r1a_browser_redteam_v2_20260813.md`
-- audit commit: `2535d8aaa0d963b057a8687b87b51ebea2c0957c`
+R1b makes actual launch height explicit:
 
-### R1b — NEXT SINGLE TASK
+- `classifyBattedBallPhysical(c, launchZ)`;
+- `predictBattedBallApexFt(c, launchZ)`;
+- production `startFlight()` passes `from[1]` directly;
+- no global pitch/fielder/canCatchAir input is introduced;
+- `battedType` remains initialized once and immutable.
+
+Permanent browser fixtures launch real `startFlight()` balls at multiple heights (1.2/2.5/3.5 ft), clone the actual initial ball state, step it with real `stepBall()`, and require contact-time type to agree with the measured apex category.
+
+Threshold-adjacent fixture:
+
+- 95mph / 16deg;
+- fixed old z=1.4 -> apex about 21.856ft -> ライナー;
+- actual z=2.5 -> apex about 22.956ft -> フライ.
+
+Mutation `M-R1B-HEIGHT-1` recreates fixed z=1.4 and is reported killed while the prior R1/R1a mutations remain killed (8/8 total).
+
+Independent Browser GPT approval:
+
+- `docs/audits/b0805_30_owner_closure_r1b_browser_redteam_20260814.md`
+- audit commit: `3af9b45f0444b275060a17b7a8f4af99441bda71`
+
+### Known non-blocking batted-ball semantic debt
+
+Do not silently forget this in Unity:
+
+- contact-time `classifyBattedBallPhysical` deliberately maps `la<=5` to `ゴロ`;
+- existing caught-air `classifyCaughtBall` can label an unlanded very-low-angle ball `ライナー`.
+
+This is older semantic ambiguity, not an R1b launch-height regression. Do **not** start another JS R1c before the Unity feasibility gate solely for this. Unity must choose and test one coherent physical-category definition.
+
+## NEXT SINGLE TASK — Unity U0 Bootstrap
+
+Unity technical spike is now unblocked.
 
 Task:
-
-- `docs/implementation/TASK_B0805_30_OWNER_CLOSURE_R1B_CONTACT_HEIGHT_COMPAT_20260813.md`
-- task commit: `9173f6df984680d9f66e59bd70b6ead6e531d64a`
-- exact base: `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
-- create branch: `agent/b0805-30-owner-closure-r1b-contact-height-compat`
-- intended worker: **Grok Build**
-
-R1b must pass actual production launch height into the physical trajectory/classification contract and add mutation coverage for the fixed-height defect.
-
-Do not start R2 or Unity U0 in the same task.
-
-## Unity technical spike — QUEUED AFTER R1b APPROVAL
-
-Unity is installed/prepared by the owner. The new Unity implementation will be a separate local repository/project initially, not a rewrite inside this JS repo.
-
-Policy:
-
-- `docs/unity/AI_WORKER_POLICY_20260813.md`
-
-U0 task:
 
 - `docs/unity/TASK_UNITY_U0_BOOTSTRAP_20260813.md`
 - task commit: `033281f28d72a6b280cdeccc7c4ed1cb0b71858e`
 
+Worker policy:
+
+- `docs/unity/AI_WORKER_POLICY_20260813.md`
+
+Intended worker: **Grok Build**.
+
 U0 rules:
 
-- separate local repo/project, suggested `baseball3d-unity`;
-- vendor-neutral `AGENTS.md` + `CURRENT_STATE.md`;
-- Unity CLI/Editor automation layer;
-- Grok/Codex use the same scripts;
-- local Git only in U0; **no GitHub remote yet**;
-- no baseball vertical slice yet;
-- Browser GPT reviews U0 before U1.
+- create a separate local Unity project/repository, suggested `baseball3d-unity`;
+- initialize local Git and use `agent/unity-u0-bootstrap`;
+- no GitHub remote in U0;
+- create vendor-neutral `AGENTS.md` and Unity-side `docs/handoff/CURRENT_STATE.md`;
+- establish Unity CLI/Editor automation callable by Grok Build or Codex through the same scripts;
+- add real deterministic smoke tests;
+- generate a minimal scene through automation;
+- run bootstrap/tests/validation/build where installed modules permit;
+- commit locally, leave worktree clean, then STOP;
+- do not start U1 until Browser GPT reviews U0.
 
 After U0 approval, U1 will implement one golden vertical slice based on the owner recording:
 
@@ -140,20 +163,18 @@ After U0 approval, U1 will implement one golden vertical slice based on the owne
 - 4-3 out;
 - deterministic simulation + debug observability.
 
-## Strategic sequencing after R1b
+Unity is **not canonical yet**. Adoption decision comes after U0 + U1 + owner/Browser GPT gate.
 
-Do **not** immediately implement JS R2/R3 after R1b.
+## Strategic sequencing
 
-Sequence:
-
-1. R1b JS repair and Browser GPT approval.
-2. Unity U0 automation/bootstrap.
-3. Unity U1 one-play vertical slice.
+1. **Unity U0** automation/bootstrap.
+2. Browser GPT independent U0 review.
+3. **Unity U1** one-play golden vertical slice.
 4. Browser GPT + owner Unity adoption gate.
-5. If Unity adoption PASS: JS remains reference/oracle; unresolved owner feedback (b29a/Issue #30) becomes migration/acceptance requirements for Unity rather than automatically being implemented twice in JS.
+5. If Unity adoption PASS: JS remains reference/oracle; unresolved b29a/Issue #30 requirements migrate into Unity acceptance work rather than being automatically implemented twice.
 6. If Unity adoption FAIL: return to JS owner-closure R2/R3.
 
-This sequence avoids spending substantial time implementing the same structural systems twice before the Unity feasibility decision.
+Do not immediately implement JS R2/R3 now.
 
 ## Parallel b29a owner-fix candidate
 
@@ -170,7 +191,7 @@ Contains candidate repairs for:
 - head-slide body sinking/disappearing;
 - head-first return slides.
 
-Do not merge it automatically. If Unity adoption passes, use these as behavioral requirements/reference patches rather than assuming a JS merge is still needed.
+Do not merge automatically. If Unity adoption passes, use these as behavioral requirements/reference patches.
 
 ## Issue #30 structural owner feedback
 
@@ -251,6 +272,7 @@ Unity adoption does not erase unresolved owner feedback. It changes the implemen
 - `docs/audits/owner_feedback_closure_matrix_20260813.md`
 - `docs/audits/b0805_30_owner_closure_r1_browser_redteam_20260813.md`
 - `docs/audits/b0805_30_owner_closure_r1a_browser_redteam_v2_20260813.md`
+- `docs/audits/b0805_30_owner_closure_r1b_browser_redteam_20260814.md`
 - tracking Issue: #33
 
 ## DO NOT do now
@@ -259,9 +281,9 @@ Unity adoption does not erase unresolved owner feedback. It changes the implemen
 - do not merge historical b24;
 - do not merge PR #32 automatically;
 - do not start JS R2/R3 before the Unity adoption gate unless Browser GPT explicitly changes the sequence;
-- do not start Unity U0 before R1b is independently approved;
 - do not resume M1 Final Validation;
 - do not start P1/E1/F1/P2;
-- do not mark Issue #30 closed;
+- do not mark Issue #30 or Issue #33 closed;
 - do not treat Unity as canonical before the U0/U1 adoption gate;
-- do not create the Unity GitHub remote during U0.
+- do not create the Unity GitHub remote during U0;
+- do not start U1 during the U0 task.
