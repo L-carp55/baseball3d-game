@@ -9,7 +9,7 @@ Task: `docs/implementation/CLAUDE_B0805_30_M1_FINAL_VALIDATION_TASK_20260812.md`
 
 - Exact base (R2 implementation, independently browser-red-team-approved): `05a4d7968e3952050f891351e964e3b2b6b1ea66`
 - Task-definition commit this validation started from: `8f0f389f637fe892c7b7356fc12361937a94fb08`
-- Final commit (this validation): recorded after commit, see `git log -1` on this branch.
+- Final commit (this validation, test27 migration + mutation guards + this audit): `3e2a4cc2ef38f485aceebb1aee033fba97377f1f`. (This follow-up commit, which only fills in this one SHA line, mirrors R2's own precedent of a small follow-up commit to record its own implementation SHA — see `05a4d796` in the R2 audit.)
 - `baseball3d.html` SHA-256: `3a84f3249bb761c70c1007fd924a8e63ff6f464b309f7f1508ca33842f821370` — **byte-identical to base**. This file was not touched. Verified before and after all work in this session.
 
 ## 1. Changed files
