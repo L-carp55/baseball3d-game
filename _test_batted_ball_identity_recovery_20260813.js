@@ -90,6 +90,14 @@ assert(classifyCaughtSrcForShare.includes('categorizeAirborneByAngleApex('),
   'R1a requirement 7: classifyCaughtBall shares the same angle/apex categorization table (categorizeAirborneByAngleApex) rather than keeping a second, independent copy of the boundaries');
 assert(classifySrc.includes('categorizeAirborneByAngleApex(') && classifySrc.includes('predictBattedBallApexFt('),
   'R1a requirement 6/7: classifyBattedBallPhysical routes non-ground contacts through the shared categorization table fed by the contact-time apex prediction');
+assert(/function classifyBattedBallPhysical\(\s*c\s*,\s*launchZ\s*\)/.test(classifySrc),
+  'R1b: classifyBattedBallPhysical accepts an explicit launchZ argument');
+assert(classifySrc.includes('predictBattedBallApexFt(c, launchZ)'),
+  'R1b: classifyBattedBallPhysical forwards the supplied launch height into the apex predictor');
+assert(!/\bpitch\.|\bthrowPlay\b|\bfielders\b|\bplanPlay\b|\bcanCatchAir\b/.test(apexSrc),
+  'R1b: predictBattedBallApexFt does not read pitch/defenders/canCatchAir — launch height is an explicit argument');
+assert(/function predictBattedBallApexFt\(\s*c\s*,\s*launchZ\s*\)/.test(apexSrc),
+  'R1b: predictBattedBallApexFt accepts an explicit launchZ argument');
 
 const SHARED_SUPPORT = [
   constSource(html, 'RAD'),
@@ -103,7 +111,12 @@ const SHARED_SUPPORT = [
 ].join('\n');
 const classifyContext = vm.createContext({ Math });
 vm.runInContext(SHARED_SUPPORT, classifyContext);
-const classify = (exit, la) => vm.runInContext('classifyBattedBallPhysical({exit:' + exit + ',la:' + la + '})', classifyContext);
+const classify = (exit, la, launchZ) => {
+  const args = launchZ === undefined
+    ? '{exit:' + exit + ',la:' + la + '}'
+    : '{exit:' + exit + ',la:' + la + '},' + launchZ;
+  return vm.runInContext('classifyBattedBallPhysical(' + args + ')', classifyContext);
+};
 
 /* Owner pins use realistic exit velocities for their angle so the apex prediction stays
    physically plausible (a "9° liner" at a token 1mph exit velocity is not a real contact
@@ -130,7 +143,12 @@ assert.strictEqual(classify(95, 46), 'ポップフライ', 'boundary: la=46 cros
 const apexContext = vm.createContext({ Math });
 vm.runInContext([constSource(html,'RAD'), constSource(html,'DRAG'), constSource(html,'BACKSTOP_R'),
   constSource(html,'clamp'), functionSource(html,'stepBall'), apexSrc].join('\n'), apexContext);
-const predictApex = (exit, la) => vm.runInContext('predictBattedBallApexFt({exit:' + exit + ',la:' + la + '})', apexContext);
+const predictApex = (exit, la, launchZ) => {
+  const args = launchZ === undefined
+    ? '{exit:' + exit + ',la:' + la + '}'
+    : '{exit:' + exit + ',la:' + la + '},' + launchZ;
+  return vm.runInContext('predictBattedBallApexFt(' + args + ')', apexContext);
+};
 const categorizeContext = vm.createContext({});
 vm.runInContext(categorizeSrc, categorizeContext);
 const categorize = (la, apexZ) => vm.runInContext('categorizeAirborneByAngleApex(' + la + ',' + apexZ + ')', categorizeContext);
@@ -150,11 +168,86 @@ for (const [exit, la] of [[60, 9], [50, 11], [95, 30], [95, 46]]) {
 }
 
 /* =====================================================================================
+   Part 1c — R1b launch-height compatibility.
+   Independent sweep of the real stepBall() (same initial-state construction as
+   startFlight: v=exit*1.467, vy=v*cos(la), vz=v*sin(la), bs=clamp((la+6)/30,-0.4,1.1))
+   found a physically plausible 6-20° contact where fixed z=1.4 and the actual
+   production launch height flip the 22ft liner/fly boundary:
+
+     95mph / 16° / startZ=2.5ft  -> measured apex 22.956ft -> フライ
+     95mph / 16° / startZ=1.4ft  -> measured apex 21.856ft -> ライナー
+
+   Isolated callers may still omit launchZ (default 1.4). Production must pass the
+   real height. The helper below steps real stepBall() itself; it does not call
+   predictBattedBallApexFt, so agreement is not tautological.
+   ===================================================================================== */
+vm.runInContext(
+  'function measureApexIndep(exit,la,z0){' +
+  '  const v=(exit||0)*1.467, laRad=(la||0)*RAD;' +
+  '  const b={x:0,y:0,z:z0,vx:0,vy:v*Math.cos(laRad),vz:v*Math.sin(laRad),' +
+  '    bs:clamp(((la||0)+6)/30,-0.4,1.1), ss:0};' +
+  '  let apex=b.z;' +
+  '  for(let i=0;i<1200;i++){' +
+  '    stepBall(b,1/240);' +
+  '    if(b.z>apex) apex=b.z;' +
+  '    if(b.z<=0.02 && i>10) break;' +
+  '  }' +
+  '  return apex;' +
+  '}',
+  classifyContext
+);
+const measureApexIndep = (exit, la, z0) =>
+  vm.runInContext('measureApexIndep(' + exit + ',' + la + ',' + z0 + ')', classifyContext);
+
+const HEIGHT_FLIP = { exit: 95, la: 16, startZ: 2.5 };
+const flipApex14 = measureApexIndep(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, 1.4);
+const flipApex25 = measureApexIndep(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, HEIGHT_FLIP.startZ);
+assert(flipApex14 < 22 && flipApex25 >= 22,
+  'sanity: 95mph/16deg is threshold-adjacent — apex at z=1.4 is ' + flipApex14 +
+  'ft (liner side) and apex at z=2.5 is ' + flipApex25 + 'ft (fly side)');
+assert.strictEqual(classify(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, 1.4), 'ライナー',
+  'R1b: 95mph/16deg at launchZ=1.4 is ライナー (apex ' + flipApex14 + 'ft)');
+assert.strictEqual(classify(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, HEIGHT_FLIP.startZ), 'フライ',
+  'R1b threshold-adjacent: 95mph/16deg at launchZ=2.5 is フライ (apex ' + flipApex25 +
+  'ft). Fixed-height z=1.4 would still call this ライナー');
+assert.strictEqual(classify(HEIGHT_FLIP.exit, HEIGHT_FLIP.la), 'ライナー',
+  'R1b: isolated callers that omit launchZ keep the 1.4ft default');
+assert.notStrictEqual(
+  classify(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, 1.4),
+  classify(HEIGHT_FLIP.exit, HEIGHT_FLIP.la, HEIGHT_FLIP.startZ),
+  'R1b: different explicit launch heights reach the classifier and change the category on the 22ft boundary case'
+);
+
+const SAME_TRAJECTORY_CASES = [
+  [60, 9, 1.2], [60, 9, 2.5], [60, 9, 3.5],
+  [50, 11, 1.5],
+  [95, 16, 1.2], [95, 16, 2.5], [95, 16, 3.5],
+  [105, 18, 1.2], [105, 18, 2.5], [105, 18, 3.3],
+  [95, 30, 2.5],
+  [85, 18, 1.2]
+];
+for (const [exit, la, z0] of SAME_TRAJECTORY_CASES) {
+  const measured = measureApexIndep(exit, la, z0);
+  const physical = classify(exit, la, z0);
+  const fromMeasured = categorize(la, measured);
+  assert.strictEqual(physical, fromMeasured,
+    'R1b same-trajectory: classifyBattedBallPhysical(exit=' + exit + ',la=' + la +
+    ',launchZ=' + z0 + ') is ' + physical + ' but independent stepBall apex ' +
+    measured + 'ft categorizes as ' + fromMeasured);
+  const predicted = predictApex(exit, la, z0);
+  assert(Math.abs(predicted - measured) < 1e-9,
+    'R1b: predictBattedBallApexFt(launchZ=' + z0 + ') matches the independent stepBall apex for exit=' +
+    exit + ' la=' + la + ' (pred=' + predicted + ' measured=' + measured + ')');
+}
+
+/* =====================================================================================
    Part 2 — startFlight wiring and immutability (assertions 1, 5 — structural half)
    ===================================================================================== */
 const startFlightSrc = functionSource(html, 'startFlight');
-assert(/battedType\s*:\s*classifyBattedBallPhysical\(c\)/.test(startFlightSrc),
-  'assertion 1 (§5.1): startFlight assigns ball.battedType via classifyBattedBallPhysical(c) in the object-literal constructor');
+assert(/battedType\s*:\s*classifyBattedBallPhysical\(\s*c\s*,\s*from\[1\]\s*\)/.test(startFlightSrc),
+  'assertion 1 / R1b production wiring: startFlight assigns ball.battedType via classifyBattedBallPhysical(c, from[1])');
+assert(!/battedType\s*:\s*classifyBattedBallPhysical\(\s*c\s*\)/.test(startFlightSrc),
+  'R1b: production startFlight does not silently omit the known launch height');
 const planCallIndex = startFlightSrc.indexOf('planPlay(ball)');
 const battedTypeIndex = startFlightSrc.indexOf('battedType');
 assert(battedTypeIndex >= 0 && planCallIndex >= 0 && battedTypeIndex < planCallIndex,
@@ -290,6 +383,22 @@ function apexOnlyTrial(exit, la, label){
   startFlight({exit, la, spray:0}, 1, [0, 2.5, 1.4]);
   return {label, preType: ball.battedType};
 }
+function sameTrajectoryTrial(exit, la, startZ, label){
+  window.__seedRandom();
+  newGame();
+  S.bases=[null,null,null];
+  startFlight({exit, la, spray:0}, 1, [0, startZ, 1.4]);
+  const contactType = ball.battedType;
+  const clone = {x:ball.x,y:ball.y,z:ball.z,vx:ball.vx,vy:ball.vy,vz:ball.vz,bs:ball.bs,ss:ball.ss};
+  let measuredApex = clone.z;
+  for(let i=0;i<1200;i++){
+    stepBall(clone,1/240);
+    if(clone.z>measuredApex) measuredApex=clone.z;
+    if(clone.z<=0.02 && i>10) break;
+  }
+  return {label, startZ, contactType, measuredApex,
+    measuredCategory: categorizeAirborneByAngleApex(la, measuredApex)};
+}
 return JSON.stringify([
   trial(60, 9, 0, 'liner_9deg'),
   trial(60, 9, -10, 'liner_9deg_mirror'),
@@ -297,7 +406,15 @@ return JSON.stringify([
   trial(50, 11, -5, 'liner_11deg_mirror'),
   trial(45, 1, 0, 'grounder_1deg'),
   trial(60, -5, 0, 'grounder_negative'),
-  apexOnlyTrial(105, 18, 'highapex_18deg')
+  apexOnlyTrial(105, 18, 'highapex_18deg'),
+  sameTrajectoryTrial(60, 9, 1.2, 'same_60_9_z12'),
+  sameTrajectoryTrial(60, 9, 2.5, 'same_60_9_z25'),
+  sameTrajectoryTrial(60, 9, 3.5, 'same_60_9_z35'),
+  sameTrajectoryTrial(95, 16, 1.2, 'same_95_16_z12'),
+  sameTrajectoryTrial(95, 16, 2.5, 'same_95_16_z25'),
+  sameTrajectoryTrial(95, 16, 3.5, 'same_95_16_z35'),
+  sameTrajectoryTrial(105, 18, 2.5, 'same_105_18_z25'),
+  sameTrajectoryTrial(85, 18, 1.2, 'same_85_18_z12')
 ]);
 `;
 
@@ -357,6 +474,34 @@ for (const label of ['grounder_1deg', 'grounder_negative']) {
 const highApexFixture = byLabel['highapex_18deg'];
 assert(highApexFixture, 'fixture highapex_18deg ran');
 assert.strictEqual(highApexFixture.preType, 'フライ', 'R1a requirement 5 (real fixture): a real startFlight() 18°/105mph contact -- the red-team\'s flagged case -- is フライ, not ライナー');
-assert.strictEqual(highApexFixture.preType, highApexPhysical, 'the real browser-executed startFlight() result agrees with Part 1b\'s isolated vm-sandbox prediction for the identical (exit, la)');
+assert.strictEqual(highApexFixture.preType, classify(HIGH_APEX_CASE.exit, HIGH_APEX_CASE.la, 2.5),
+  'the real browser-executed startFlight() at from[1]=2.5 agrees with classifyBattedBallPhysical at the same launch height');
+
+const sameLabels = [
+  'same_60_9_z12', 'same_60_9_z25', 'same_60_9_z35',
+  'same_95_16_z12', 'same_95_16_z25', 'same_95_16_z35',
+  'same_105_18_z25', 'same_85_18_z12'
+];
+for (const label of sameLabels) {
+  const f = byLabel[label];
+  assert(f, 'fixture ' + label + ' ran');
+  assert.strictEqual(f.contactType, f.measuredCategory,
+    'R1b same-trajectory browser: ' + label + ' contact-time type ' + f.contactType +
+    ' must equal categorizeAirborneByAngleApex(la, measured stepBall apex ' + f.measuredApex +
+    'ft)=' + f.measuredCategory);
+}
+
+const flipLow = byLabel['same_95_16_z12'];
+const flipMid = byLabel['same_95_16_z25'];
+const flipHigh = byLabel['same_95_16_z35'];
+assert.strictEqual(flipLow.contactType, 'ライナー',
+  'R1b: 95mph/16deg at from[1]=1.2 stays ライナー (measured apex ' + flipLow.measuredApex + 'ft)');
+assert.strictEqual(flipMid.contactType, 'フライ',
+  'R1b threshold-adjacent browser: 95mph/16deg at from[1]=2.5 is フライ (measured apex ' +
+  flipMid.measuredApex + 'ft). Restoring fixed z=1.4 would classify this ライナー');
+assert.strictEqual(flipHigh.contactType, 'フライ',
+  'R1b: 95mph/16deg at from[1]=3.5 is フライ (measured apex ' + flipHigh.measuredApex + 'ft)');
+assert.notStrictEqual(flipLow.contactType, flipMid.contactType,
+  'R1b production wiring: different from[1] values reach classifyBattedBallPhysical');
 
 console.log(JSON.stringify({ status: 'PASS', fixtures }, null, 1));

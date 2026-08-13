@@ -2,7 +2,8 @@
 'use strict';
 /* Owner Closure Recovery R1 — mutation detection power check.
 
-   Injects each of the six regressions the R1 task requires (M-R1-BT-1..6) into a
+   Injects each of the R1/R1a/R1b regressions (M-R1-BT-1..6, M-R1A-COMPAT-1,
+   M-R1B-HEIGHT-1) into a
    TEMPORARY COPY of baseball3d.html and requires
    _test_batted_ball_identity_recovery_20260813.js to FAIL against that copy.
 
@@ -43,7 +44,7 @@ const MUTANTS = [
     why: 'remove the production battedType assignment entirely',
     apply(source) {
       return replaceOnce(source,
-        "    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false,\n    battedType: classifyBattedBallPhysical(c) };",
+        "    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false,\n    battedType: classifyBattedBallPhysical(c, from[1]) };",
         "    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false };",
         'M-R1-BT-1 anchor');
     }
@@ -104,9 +105,19 @@ const MUTANTS = [
     why: 'recreate the R1a-flagged defect: classify every la<=20 airborne contact as ライナー again, regardless of predicted physical apex (bypassing the shared categorizeAirborneByAngleApex/predictBattedBallApexFt contract)',
     apply(source) {
       return replaceOnce(source,
-        "  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c));\n}",
-        "  if(la<=20) return 'ライナー';  // mutation: angle-only again, ignores apex\n  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c));\n}",
+        "  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c, launchZ));\n}",
+        "  if(la<=20) return 'ライナー';  // mutation: angle-only again, ignores apex\n  return categorizeAirborneByAngleApex(la, predictBattedBallApexFt(c, launchZ));\n}",
         'M-R1A-COMPAT-1 anchor');
+    }
+  },
+  {
+    id: 'M-R1B-HEIGHT-1',
+    why: 'recreate the R1a-F2 defect: ignore the supplied production launch height and force the apex predictor to use fixed z=1.4',
+    apply(source) {
+      return replaceOnce(source,
+        "  const z0 = (launchZ==null ? 1.4 : +launchZ);\n",
+        "  const z0 = 1.4;  // mutation: ignore supplied launch height\n",
+        'M-R1B-HEIGHT-1 anchor');
     }
   }
 ];
