@@ -1,16 +1,16 @@
 # Worker Migration Handoff — Claude Code -> Grok Build
 
-Date: 2026-08-13
+Last updated: 2026-08-14
 Repository: `L-carp55/baseball3d-game`
-Status: ACTIVE
+Status: **MIGRATION COMPLETE / NEXT = UNITY U0**
 
 ## Purpose
 
-Move primary implementation work from Claude Code to Grok Build without carrying chat-history state or worker-specific assumptions.
+Primary implementation work has moved from Claude Code to Grok Build without carrying chat-history state or worker-specific assumptions.
 
-This handoff is intentionally cold-startable from Git/GitHub state.
+This handoff is cold-startable from Git/GitHub state.
 
-## Roles after migration
+## Roles
 
 - Primary implementation worker: **Grok Build**
 - Fallback/alternate implementation worker: **Codex local/CLI**
@@ -18,11 +18,9 @@ This handoff is intentionally cold-startable from Git/GitHub state.
 - Owner: final gameplay and visual acceptance
 - Claude Code: historical worker only; no new task should be started there unless explicitly reactivated
 
-## What Claude Code completed and pushed
+## JS recovery state inherited from worker migration
 
 ### R1
-
-Branch:
 
 `claude/b0805-30-owner-closure-r1-batted-ball-identity`
 
@@ -31,99 +29,108 @@ Branch:
 
 ### R1a
 
-Branch:
-
 `claude/b0805-30-owner-closure-r1a-classifier-compat`
 
 - implementation: `90514d7b592b63a993a1374eb6a905c9e4e38880`
 - final HEAD: `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
 
-Browser GPT independently confirmed both remote branches/commit structure and reviewed the production diff.
-
-Claude Code reported its `baseball3d-game` working tree clean after R1a. That local-clean statement is a worker self-report; continuation must rely on the remote commits above, not on assumed local state.
-
-No additional Claude Code-generated handoff is required.
-
-## Important: R1a is NOT finally approved
-
-R1a fixed the angle-only liner/fly classifier incompatibility, but Browser GPT independent red-team v2 found one remaining narrow defect:
-
-- `predictBattedBallApexFt(c)` assumes fixed initial `z=1.4`;
-- production `startFlight()` launches from `z=from[1]`;
-- normal batting uses `from[1]=Math.max(1.2,pitch.ty)`;
-- the physical identity classifier therefore may predict a different trajectory from the actual launched ball near the absolute 22ft liner/fly boundary.
-
-Authority:
-
-`docs/audits/b0805_30_owner_closure_r1a_browser_redteam_v2_20260813.md`
-
-## NEXT SINGLE TASK — Grok Build R1b
-
-Task:
-
-`docs/implementation/TASK_B0805_30_OWNER_CLOSURE_R1B_CONTACT_HEIGHT_COMPAT_20260813.md`
-
-Exact repair base:
-
-`de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
-
-Create vendor-neutral branch:
+### R1b — first Grok Build implementation task
 
 `agent/b0805-30-owner-closure-r1b-contact-height-compat`
 
-Do not continue on the old `claude/` branch.
+- implementation: `4d1b9f039b3f6028f31290eb1f69848890539700`
+- final HEAD: `33b5518a3eb9e76e6525dc7e23556c55ed88ec5d`
+- Browser GPT verdict: **APPROVED implementation candidate**
 
-## Grok cold-start procedure
+Independent review:
 
-1. Open the existing local `baseball3d-game` repository.
-2. Run `git status` first.
-3. If unrelated local changes exist, STOP and report them; do not silently stash/delete/overwrite them.
-4. `git fetch origin`.
-5. Independently verify that remote R1a HEAD is exactly:
-   `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`.
-6. Read, in order:
-   - `agent/research-baseball-motion-ai:docs/handoff/CURRENT_STATE.md`
-   - `agent/research-baseball-motion-ai:docs/unity/AI_WORKER_POLICY_20260813.md`
-   - `agent/research-baseball-motion-ai:docs/audits/b0805_30_owner_closure_r1a_browser_redteam_v2_20260813.md`
-   - `agent/research-baseball-motion-ai:docs/implementation/TASK_B0805_30_OWNER_CLOSURE_R1B_CONTACT_HEIGHT_COMPAT_20260813.md`
-7. Create `agent/b0805-30-owner-closure-r1b-contact-height-compat` from the exact R1a HEAD.
-8. Execute **R1b only**.
-9. Run all required focused/mutation/regression gates.
-10. Commit and push the R1b branch.
-11. STOP and report exact branch, implementation/final SHA, changed files, test results and audit path.
+`docs/audits/b0805_30_owner_closure_r1b_browser_redteam_20260814.md`
 
-Browser GPT will independently review the remote diff after completion.
+The R1/R1a/R1b implementation-review gate is therefore complete. This is not equivalent to closing Issue #33: integration/owner verification gates still exist.
 
-## Do not do during R1b
+## NEXT SINGLE TASK — Unity U0
 
-- do not create/merge a PR;
-- do not start JS R2/R3;
-- do not integrate PR #32;
-- do not implement Issue #30 systems;
-- do not resume M1 Final Validation;
-- do not start P1;
-- do not start Unity U0 in the same task;
-- do not rename historical Claude task/audit files merely because the primary worker changed.
-
-## Unity is queued, not started
-
-After Browser GPT approves R1b, the next task is Unity U0:
+Task:
 
 `docs/unity/TASK_UNITY_U0_BOOTSTRAP_20260813.md`
 
-Worker policy:
+Policy:
 
 `docs/unity/AI_WORKER_POLICY_20260813.md`
 
-U0 creates a separate local `baseball3d-unity` project/repository with Unity CLI/Editor automation and no GitHub remote yet.
+Read current truth first:
 
-Unity does not become canonical in U0. The adoption decision comes after U0 and U1 (one deterministic 91mph/1deg/spray19deg routine 4-3 ground-ball vertical slice) are independently reviewed and owner-tested.
+`docs/handoff/CURRENT_STATE.md`
+
+### Grok U0 cold-start procedure
+
+1. Finish/leave the JS R1b session stopped. Do not add commits to R1b.
+2. Read the latest `agent/research-baseball-motion-ai:docs/handoff/CURRENT_STATE.md`.
+3. Read `agent/research-baseball-motion-ai:docs/unity/AI_WORKER_POLICY_20260813.md`.
+4. Read `agent/research-baseball-motion-ai:docs/unity/TASK_UNITY_U0_BOOTSTRAP_20260813.md` in full.
+5. Detect the installed Unity/PowerShell/Git/Grok toolchain instead of assuming versions/paths.
+6. Create a **separate local** Unity project/repository, suggested sibling name `baseball3d-unity`.
+7. Initialize local Git and use branch `agent/unity-u0-bootstrap`.
+8. Execute **U0 only**: project/bootstrap/automation/architecture seed/tests/validation/build/audit/handoff.
+9. Do not create a GitHub remote during U0.
+10. Commit locally, ensure worktree clean, then STOP and report the local project path, exact Unity version/path, local final commit SHA, test/build results, and audit/handoff paths.
+
+Browser GPT reviews U0 before U1.
+
+## U0 intent
+
+U0 proves that Grok Build/Codex can operate Unity through stable, vendor-neutral automation rather than repetitive GUI manipulation.
+
+Expected entrypoints include:
+
+- `scripts/unity-common.ps1`
+- `scripts/unity-bootstrap.ps1`
+- `scripts/unity-test.ps1`
+- `scripts/unity-validate.ps1`
+- `scripts/unity-build.ps1`
+
+Unity Editor scripts should provide deterministic `-executeMethod` style setup/build actions.
+
+No real baseball vertical slice is implemented in U0.
+
+## U1 after U0 approval
+
+U1 will be the first baseball vertical slice:
+
+- approximately 91mph / 1deg / spray 19deg;
+- routine second-base ground ball;
+- 4-3 out;
+- deterministic simulation;
+- observable fielding/throw/possession state.
+
+Unity becomes canonical only after U0 + U1 + Browser GPT/owner adoption gate.
+
+## Known requirement debt to carry into Unity
+
+Do not blindly port JS behavior. Preserve owner requirements and explicitly revisit known ambiguities, including:
+
+- very-low-angle (`la<=5`) contact-time ground classification versus existing caught-air liner labeling;
+- b29a high-fly bounce/head-slide/return-slide owner fixes;
+- Issue #30 structural systems: RunnerContact/TagEvent, ThrowRoute, HOLD_BALL, FieldingExecution/BallPossession, chase+cover assignment, rundown admission/receive timing, stationary-ball retarget, run-through pickup, walls, possession/display lifecycle.
+
+Unity adoption does not erase these requirements.
+
+## Do not do now
+
+- do not start new Claude Code implementation work;
+- do not continue modifying R1b after approval;
+- do not create/merge a JS PR for R1b unless explicitly requested later;
+- do not start JS R2/R3 before the Unity adoption decision;
+- do not merge PR #32 automatically;
+- do not resume M1 Final Validation or P1;
+- do not create a Unity GitHub remote in U0;
+- do not start U1 inside U0.
 
 ## Authority rule
 
-If this file conflicts with an older Claude Code chat, old PR body, old Issue body, or stale status document:
+If this file conflicts with an older Claude/Grok chat, PR body, Issue body, or stale status document:
 
 1. inspect current GitHub remote;
 2. read `docs/handoff/CURRENT_STATE.md`;
-3. prefer the newest independent audit/task;
+3. prefer the newest independent audit/current task;
 4. do not infer missing state from chat memory.
