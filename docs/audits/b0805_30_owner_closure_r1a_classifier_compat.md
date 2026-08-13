@@ -10,7 +10,7 @@ Tracking Issue: #33
 ## 0. SHAs
 
 - Exact repair base (R1's final commit): `5088aeefd0ee632282c36120185dcc97ff2fc880`
-- Implementation commit (this R1a): recorded in a follow-up commit after the primary commit, same precedent as R1/R2/M1 final validation's own self-referential SHA commits.
+- Implementation commit (this R1a): `90514d7b592b63a993a1374eb6a905c9e4e38880`. (This follow-up commit, which only fills in this one SHA line, mirrors R1/R2/M1 final validation's own precedent of a small follow-up commit to record their own implementation SHA.)
 - `baseball3d.html` SHA-256 after R1a: `22350d3ed2fdb9f59c5aba49c330932f6755f99a2101c210d3962b4b3029bf3e` (legitimately changed from R1's `417eb93f...` — this repair edits production code).
 
 ## 1. Changed files
