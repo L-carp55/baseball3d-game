@@ -665,21 +665,106 @@
     out.test26_ゴロ不要ダイブ={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};
   })();
 
-  // ===== test27: 投球動作とボールリリースの時系列（OI-245） =====
+  // ===== test27: 投球動作とボールリリースの時系列（OI-245 / M1 final validation） =====
+  /* ★2026-08-12 M1 final validationで全面書き換え。旧版は本番のCMUモーション契約に対して
+     3点で陳腐化していた（browser red-teamが特定・migrate指示）:
+     1. releaseBefore.elbowR<0.8 という固定右肘閾値をrelease判定の権威にしていたが、
+        CMU profileはdefaultRigThrowSide='L'でミラー対応済みのため固定閾値は権威にならない。
+     2. S.phase='pitch'; pitch={t:0} と不完全な自作状態を代入しており、本番のrelease遷移
+        （launchPitch()内のbeginPitchMotion()呼び出し、anim.pitchMotionReleasedの設定）を
+        経由していなかった。pitcherPose()はanim.pitchMotionReleasedを要求するため、
+        この自作状態ではnullが返り、続くreleaseAfter.stride参照で例外になっていた。
+     3. pitch.t（球の飛行進行率）をフォロースルー判定の時計に使っていたが、M1は投球後の
+        見た目をanim.pitchMotionPostSec（renderer-owned・飛行時間や球種と無関係）へ意図的に
+        切り離しており、pitch.tを権威にする設計と矛盾する。
+     新版は本番のlaunchPitch()経路を実際に通し、anim.pitchMotionPostSecだけを権威にする。
+     ★pitcherPose()は PITCH_MOTION_POSE という単一の共有out-paramオブジェクトを毎回
+     使い回す。呼び出し直後に{...pitcherPose()}で値をコピーしないと、後続のupdate()内の
+     描画呼び出しが同じオブジェクトを書き換え、先に取った変数が新しい値に化ける
+     （自分のプローブで実際に踏んで気づいたバグ。旧releaseBefore/releaseAfterの比較も
+     同じ落とし穴を持っていた可能性が高い＝比較は常に自明にtrueになりうる形だった）。 */
   (function(){
     const chk=[];
     try{
       newGame();
-      S.phase='windup'; anim.wind=0.85;
-      const releaseBefore=pitcherPose();
-      S.phase='pitch'; pitch={t:0};
-      const releaseAfter=pitcherPose();
-      chk.push({n:'投球開始時にはリリース姿勢',ok:releaseBefore.stride>4&&releaseBefore.elbowR<0.8});
-      chk.push({n:'球が離れる境界で姿勢が連続',ok:Math.abs(releaseBefore.stride-releaseAfter.stride)<0.05&&Math.abs(releaseBefore.armR-releaseAfter.armR)<0.05});
-      pitch.t=0.38; const follow=pitcherPose();
-      chk.push({n:'リリース後にフォロースルー',ok:follow.armR>0.5&&follow.lean>0.5});
-      pitch.t=0.88; const settle=pitcherPose();
-      chk.push({n:'球の飛行中に守備姿勢へ復帰',ok:settle.crouch<0.18&&settle.lean<0.36});
+      const W=CMU124_PITCH_PROFILE.timing.gameplayWindupSeconds;
+
+      // 1) 0.85秒windup終了時点でCMU release_proxy、有限値
+      S.phase='windup'; anim.wind=W;
+      const preRelease={...pitcherPose()};
+      chk.push({n:'windup終了はrelease_proxy',ok: preRelease.sourceEvent==='release_proxy'});
+      chk.push({n:'release前ポーズは有限値',ok: [preRelease.stride,preRelease.armR,preRelease.pelvisYaw].every(Number.isFinite)});
+
+      // 2) 本番のrelease経路(launchPitch→beginPitchMotion→phase切替)を実際に通す構造チェック
+      const launchSrc=String(launchPitch);
+      const iBegin=launchSrc.indexOf('beginPitchMotion()');
+      const iPhase=launchSrc.indexOf("S.phase='pitch'");
+      chk.push({n:'launchPitchはbeginPitchMotion→phase切替の順',ok: iBegin>=0 && iPhase>=0 && iBegin<iPhase});
+
+      launchPitch(0,0,0);   // ストレート。実際のゲームと同じ関数を呼ぶ（自作のpitchオブジェクトは使わない）
+      const postT0={...pitcherPose()};
+
+      // 3) release直後: pitchMotionReleased===true、postSecは0から、pitcherPoseは非null、
+      //    release前後のアンカーが連続（設計上は完全一致するはず）
+      chk.push({n:'release直後にanim.pitchMotionReleased',ok: anim.pitchMotionReleased===true});
+      chk.push({n:'release直後postSecは0から始まる',ok: Math.abs(anim.pitchMotionPostSec)<1e-9});
+      chk.push({n:'release直後pitcherPoseは非nullでrelease_post_anchor',ok: postT0 && postT0.sourceEvent==='release_post_anchor_proxy'});
+      chk.push({n:'release前後のアンカーが連続',
+        ok: Math.abs(preRelease.stride-postT0.stride)<0.05 && Math.abs(preRelease.armR-postT0.armR)<0.05});
+
+      // 4) 固定elbowRでなく、実際の手とボールの幾何距離ゲートで権威づける
+      //    （<=0.75ft。R2 auditと同じゲート。elbowRはこのテストのどこでも参照しない）
+      const diag=PITCH_MOTION_RELEASE_DIAGNOSTIC;
+      chk.push({n:'release時の手とボールの実距離が0.75ft以内',ok: Number.isFinite(diag.handBallOffsetFt) && diag.handBallOffsetFt<=0.75});
+      chk.push({n:'診断はrelease_proxyを記録',ok: diag.sourceEvent==='release_proxy'});
+
+      // 5) 本物のupdate()ループでanim.pitchMotionPostSecを進め、フォロースルーへ正しく遷移するか
+      //    （pitch.tでなく実dt蓄積で進んでいることの証明。mut51の番人）
+      for(let i=0;i<6;i++) update(1/60);
+      const early={...pitcherPose()};
+      chk.push({n:'実update6回でearly_follow_through_proxyへ',ok: early.sourceEvent==='early_follow_through_proxy'});
+      chk.push({n:'6回分のdtがpostSecへ反映',ok: Math.abs(anim.pitchMotionPostSec-6/60)<1e-4});
+
+      for(let i=0;i<16;i++) update(1/60);  // 合計22回≈0.367秒
+      const late={...pitcherPose()};
+      chk.push({n:'実update22回でlate_follow_through_proxyへ',ok: late.sourceEvent==='late_follow_through_proxy'});
+
+      // 6) 球種・投球時間を変えても、同じupdate回数なら同じサンプルになるか（pitch.t非依存の証明）
+      newGame(); S.phase='windup'; anim.wind=W;
+      launchPitch(1,0,0);                       // カーブ。durが異なる
+      const curveDur=pitch.dur;
+      for(let i=0;i<7;i++) update(1/60);
+      const curveSample={...pitcherPose(), postSec:anim.pitchMotionPostSec};
+      newGame(); S.phase='windup'; anim.wind=W;
+      launchPitch(0,0,0);                       // ストレート
+      const straightDur=pitch.dur;
+      for(let i=0;i<7;i++) update(1/60);
+      const straightSample={...pitcherPose(), postSec:anim.pitchMotionPostSec};
+      chk.push({n:'球種でdurが実際に異なる(前提の確認)',ok: Math.abs(curveDur-straightDur)>0.05});
+      chk.push({n:'同じupdate回数なら球種によらず同一サンプル',
+        ok: curveSample.sourceEvent===straightSample.sourceEvent
+          && Math.abs(curveSample.stride-straightSample.stride)<1e-6
+          && Math.abs(curveSample.postSec-straightSample.postSec)<1e-9});
+
+      // 7) readyアダプタへの到達（renderer-owned時計を直接進めて確認。実プレーでは1.2秒に
+      //    到達する前にpitch.t>=1.28で投球結果が確定しphaseが変わりうるため、この1点だけは
+      //    R1/R2と同じ手法＝直接代入でサンプリングする。pitcherPose()自体はanim状態だけの
+      //    純関数なので、これは「本番と違う経路」ではなく設計どおりの使い方）
+      newGame(); S.phase='windup'; anim.wind=W;
+      launchPitch(0,0,0);
+      anim.pitchMotionPostSec=1.2;
+      const ready={...pitcherPose()};
+      chk.push({n:'1.2秒でgame_field_ready_adapterへ',ok: ready.sourceEvent==='game_field_ready_adapter'});
+
+      // 8) ライブ打球へのハンドオフ: pitcherPose()はwindup/pitch以外でnullを返し、
+      //    描画側は既存のpitcherPose()||fielderPose(f)でfielderPoseへ委譲する
+      //    （dispatch文字列そのものの確認はNode側 _test_pitch_motion_bank_cmu124_20260811.js
+      //    が既に持っているため、ここではpitcherPose()の実行時挙動だけを見る）
+      S.phase='flight';
+      chk.push({n:'flight中はpitcherPoseがnull(fielderPoseへ委譲)',ok: pitcherPose()===null});
+
+      // 9) CPU側windup/releaseは0.85秒のまま（不変条件の構造チェック）
+      chk.push({n:'beginAtBatPhaseはwindup 0.85秒のまま',ok: String(beginAtBatPhase).includes('S.timer=0.85')});
     }catch(e){ chk.push({n:'例外',ok:false,e:e.message}); }
     const bad=chk.filter(x=>!x.ok);
     out.test27_投球モーション時系列={検査:chk.length,不合格:bad.map(x=>x.n),verdict:bad.length?'FAIL':'PASS'};

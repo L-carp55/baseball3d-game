@@ -186,6 +186,38 @@ def make_mutations(base: str) -> dict[int, str]:
         "  const continuation={eligible:false,bonus:0,relayProbability:0,expectedOuts:outProbability};\n",
         "mut50-force-chain",
     )
+    # ---- M1 final validation: test27 contract guards (2026-08-12) ----
+    # mut51: reintroduce pitch.t (ball-flight fraction) as the post-release animation
+    # clock instead of the renderer-owned real-time dt. pitch.t accumulates at rate
+    # 1/pitch.dur per second, so this makes the animation clock's rate depend on pitch
+    # type/duration again -- exactly what M1's dt-based design was built to prevent.
+    out[51] = replace_once(
+        base,
+        "  if(S.phase==='pitch' && anim.pitchMotionReleased) anim.pitchMotionPostSec+=dt;\n",
+        "  if(S.phase==='pitch' && anim.pitchMotionReleased) anim.pitchMotionPostSec=pitch?pitch.t*2:anim.pitchMotionPostSec;\n",
+        "mut51-postsec-pitcht-coupling",
+    )
+    # mut52: drop the beginPitchMotion() call from launchPitch(), simulating a
+    # fabricated/bypassed release transition. anim.pitchMotionReleased never becomes
+    # true, so pitcherPose() must fail to return the post-release contract.
+    out[52] = replace_once(
+        base,
+        "  beginPitchMotion();                  // visual release event: same update tick as the existing launch\n",
+        "  // mutation: release transition bypassed (beginPitchMotion() not called)\n",
+        "mut52-release-transition-bypass",
+    )
+    # mut53: flip which physical arm is treated as the throw arm inside
+    # mapPitchMotionToFigurePose(), independent of the (unmutated) throw-side-aware
+    # geometric hand/ball check in actualRenderedFigureHandWorldPosition(). elbowR's
+    # own numeric value stays in a plausible range either way (it just now holds the
+    # glove arm's channel instead of the throw arm's) -- a fixed elbowR<0.8 style
+    # threshold would not reliably catch this. The geometric release-distance gate must.
+    out[53] = replace_once(
+        base,
+        "  const rightThrow=sample.throwSide!=='L';\n",
+        "  const rightThrow=sample.throwSide==='L';  // mutation: throw/glove arm assignment inverted\n",
+        "mut53-handedness-arm-swap",
+    )
     return out
 
 
@@ -195,7 +227,7 @@ def assert_full(results: dict[str, dict]) -> None:
     print(json.dumps({"baseline_count": len(baseline), "baseline_failed": bad}, ensure_ascii=False, indent=2))
     if len(baseline) != 51 or bad:
         raise RuntimeError("baseline failed")
-    m = {n: results[f"mut{n}"] for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]}
+    m = {n: results[f"mut{n}"] for n in [28,29,30,31,32,33,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53]}
     checks = [
         (28,"test28_個別走者選択"),(29,"test29_守備と走者意図の分離"),(30,"test30_RunnerIntent契約"),
         (31,"test31_FieldingAssignment契約"),(32,"test32_壁反射担当交代"),(33,"test33_ReachModel契約"),
@@ -204,6 +236,7 @@ def assert_full(results: dict[str, dict]) -> None:
         (41,"test41_PlayLifecycle門番"),(43,"test43_挟殺終了goal清算"),(44,"test44_現在脅威送球ポリシー"),
         (45,"test45_捕球動作ポリシー"),(46,"test46_挟殺行動ポリシー"),
         (47,"test47_個別走者と手動固定"),(48,"test47_個別走者と手動固定"),(49,"test48_走者スライディング"),(50,"test49_先行封殺と併殺継続"),
+        (51,"test27_投球モーション時系列"),(52,"test27_投球モーション時系列"),(53,"test27_投球モーション時系列"),
     ]
     if m[37]["test37_ThrowDecision固定規則"].get("verdict") != "FAIL" and m[37]["test39_手動投手返球"].get("verdict") != "FAIL":
         raise RuntimeError("manual priority mutation escaped")
