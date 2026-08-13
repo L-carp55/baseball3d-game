@@ -10,7 +10,7 @@ Canonical authority for this recovery: `agent/research-baseball-motion-ai:docs/h
 ## 0. SHAs
 
 - Exact repair base: `05a4d7968e3952050f891351e964e3b2b6b1ea66`
-- Implementation commit (this R1): recorded in a follow-up commit after the primary commit, same precedent as R2/M1 final validation's own self-referential SHA commits — see `git log -1` on this branch after push.
+- Implementation commit (this R1, test/mutation runner + battedType recovery + this audit): `bee15b6594498ef91440b9629604cdac18430c6d`. (This follow-up commit, which only fills in this one SHA line, mirrors R2's and M1 final validation's own precedent of a small follow-up commit to record their own implementation SHA.)
 - `baseball3d.html` SHA-256 after R1: `417eb93fad3fef38950cd55f8b17e1e942e5dbbbf442d18e6be90c6de7fd2e4d` (changed from base — this recovery legitimately edits production code, unlike M1 final validation which kept it byte-identical).
 
 ## 1. Changed files
