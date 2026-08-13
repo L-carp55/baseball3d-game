@@ -4289,11 +4289,14 @@ function concludePlay(force){
   let text, color;
   if(throwPlay.rdText){                      // 挟殺プレーの結末を優先して見せる
     /* 元がフライなら、後続走者をタッチアウトにしても打球種別をゴロへ作り直さない。
-       OI-253 の「右フライ→投ゴロ」の真因は、この最終表示だけが flyKind を捨てていたこと。 */
+       OI-253 の「右フライ→投ゴロ」の真因は、この最終表示だけが flyKind を捨てていたこと。
+       OF-17/18（owner_feedback_closure_matrix_20260813）: 内野経路(infield)も同様に、
+       捕球できなかっただけの低いライナーを一律ゴロ表示にしていた。ball.battedTypeは
+       接触時に確定した不変の物理種別なので、それをそのまま使う（無ければ従来通りゴロ）。 */
     const base = throwPlay.kind==='fly' ? flyOutLabel(throwPlay,nm)
       : (throwPlay.kind==='outfield' ? (HITNAME[brBase]||'ヒット')
       : (throwPlay.kind==='steal' ? '盗塁'
-      : (throwPlay.kind==='pickoff' ? '牽制' : (throwPlay.kind==='breakaway' ? '飛び出し' : `${nm}ゴロ`))));
+      : (throwPlay.kind==='pickoff' ? '牽制' : (throwPlay.kind==='breakaway' ? '飛び出し' : `${nm}${(ball&&ball.battedType)||'ゴロ'}`))));
     text = `${base} → ${throwPlay.rdText}`;
     color = throwPlay.rdColor;
   }else{
@@ -4310,7 +4313,7 @@ function concludePlay(force){
       if(outs>0) text += ` → ${outs>1?outs+'アウト':'アウト'}`;   // 走者が刺された時は隠さない
     }
     else if(outs>=2) text='ゲッツー！ ダブルプレー';
-    else if(outs===1) text=`${nm}ゴロ アウト`;
+    else if(outs===1) text=`${nm}${(ball&&ball.battedType)||'ゴロ'} アウト`;
     else text=`${nm}への内野安打！`;
     if(color===undefined) color = outs>0 ? '#95a3b4' : (runs>0?'#5aa9ff':'#3fd66a');
   }
@@ -4356,6 +4359,24 @@ function updateThrow(dt){
   ball.x=last.b[0]; ball.y=last.b[1]; ball.z=4.0;
 }
 
+/* 打球の物理的な種別（ゴロ/ライナー/フライ/ポップフライ）を接触の瞬間に一度だけ確定する。
+   OI-245/OI-253系の再発（オーナー録画20260813, 監査owner_feedback_closure_matrix_20260813
+   OF-17/18/19）＝守備が現在の配置で捕れるか(canCatchAir)と、打球そのものの物理的な種類を
+   1つの値に混ぜていたため、低いライナーが「捕れない」と分かった瞬間にゴロ扱いへ落ちていた。
+   この関数はcanCatchAir・maxZ（飛行後にしか分からない値）を一切参照しない——後から
+   分かる値に依存すると、着地・失速のたびに種別が動いてしまう。
+   角度の境界は既存のclassifyCaughtBall()（フライ捕球時の表示）と極力揃えた:
+   la<=20→ライナー・la>45→ポップは既存と同じ値を再利用。ゴロ/ライナーの境界(5°)だけが
+   新設で、オーナー実例（9°・11°→ライナー、約1°・負角度→ゴロ）を両側に余裕を持って
+   満たす値として選んだ（1と9の中間に近い丸め値。0や3ではオーナーの「約1°」の実例に
+   近すぎ、7では9°に近すぎるため、閾値ちょうどでの誤判定リスクが小さい5を採用）。 */
+function classifyBattedBallPhysical(c){
+  const la = c.la||0;
+  if(la<=5) return 'ゴロ';
+  if(la<=20) return 'ライナー';
+  if(la<=45) return 'フライ';
+  return 'ポップフライ';
+}
 function startFlight(c, powerMul, from){
   S.errorBy=null; S.playClock=0; S.throwCount=0;   // このプレーの記録をやり直す
   recStart(`打球 ${Math.round(c.exit)}mph ${Math.round(c.la)}° 方向${Math.round(c.spray)}° / ${S.outs}死 塁${S.bases.map(b=>b?1:0).join('')}`);
@@ -4368,7 +4389,8 @@ function startFlight(c, powerMul, from){
        （引っ張りのファウルボールが曲がって出ていくのはこれ）。 */
     bs: clamp((c.la+6)/30, -0.4, 1.1),
     ss: clamp(-c.spray/38, -1.2, 1.2),
-    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false };
+    exit:c.exit, la:c.la, spray:c.spray, maxZ:from[1], landed:false,
+    battedType: classifyBattedBallPhysical(c) };
   const plan=planPlay(ball);
   ball.pred=plan.firstLand; ball.canCatchAir=plan.air; ball.planT=plan.t;
   clearAllCoverRoles('batted-ball-reset');
@@ -4889,8 +4911,9 @@ function resolveHit(ftime, fpos, entitled){
         if(i===2){ runs++; moves.push({from:3,to:4}); }
         else { nb[i+1]=S.bases[i]; moves.push({from:i+1,to:i+2}); }
       }
+      const bt = ball.battedType||'ゴロ';
       return {out:1, runs, bases:nb, hit:false, moves, throwTo:1,
-        text: runs>0?`${ball.primary.n}ゴロの間に1点`:`${ball.primary.n}ゴロ アウト`,
+        text: runs>0?`${ball.primary.n}${bt}の間に1点`:`${ball.primary.n}${bt} アウト`,
         color: runs>0?'#5aa9ff':'#95a3b4'};
     }
     return advanceOnHit(1, `${ball.primary.n}への内野安打！`, 1);
