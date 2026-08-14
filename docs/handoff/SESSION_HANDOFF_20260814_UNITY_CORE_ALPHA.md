@@ -3,79 +3,55 @@
 Date: 2026-08-14
 Repository containing this handoff: `L-carp55/baseball3d-game`
 Research branch: `agent/research-baseball-motion-ai`
-Authority: GitHub remote for the JS/reference repository plus exact owner/Grok reports captured here. The Unity repository is still local-only at the time of this handoff, so do not invent remote Unity state.
+Authority: GitHub remote for the JS/reference repository plus exact owner/Grok reports captured here. Unity source is still local-only until a private `baseball3d-unity` remote is published.
 
-## 0. Executive state
+## Executive state
 
-Primary implementation worker is **Grok Build**. Codex local/CLI is fallback. Browser GPT owns architecture/tasking/independent red-team and the owner owns gameplay/visual acceptance.
+Primary implementation worker is **Grok Build**. Codex local/CLI is fallback. Browser GPT owns architecture/tasking/independent red-team; owner owns gameplay/visual acceptance.
 
-The development process changed during this session from fine-grained stop/review after every task to **batched autonomous development**:
+Development policy changed to **batched autonomous `/goal`**:
+- Grok may continue across several meaningful milestones;
+- leave clean checkpoint commits;
+- do not merge merely because checkpoints exist;
+- Browser GPT reviews a coherent batch later;
+- target roughly 4–8 meaningful checkpoint commits or one coherent major milestone per review batch;
+- old test/build results are never evidence for a newer HEAD;
+- larger batch is not complete until current-HEAD Unity test/build gates actually run.
 
-- Grok `/goal` may continue across several meaningful milestones.
-- Preserve clean checkpoint commits.
-- Do not merge checkpoint branches merely because a checkpoint exists.
-- Browser GPT reviews a coherent batch later instead of blocking every small milestone.
-- Target review batch size: roughly 4–8 meaningful checkpoint commits, or one coherent major milestone.
-- Full current-code EditMode/PlayMode/validation/build evidence is required before the larger batch is declared complete.
-- Old test/build results must never be reused as evidence for a newer commit.
+## 1. JS reference/oracle
 
-## 1. JS reference/oracle state
+Repository: `L-carp55/baseball3d-game`.
 
-Repository: `L-carp55/baseball3d-game`
+Canonical gameplay ancestor:
+- `agent/b0805-29-possession-footwork`
+- `60b993b73fed854934a976e45e8feb9437deb584`
+- BUILD `b0805-29`
 
-Canonical gameplay ancestor remains:
+Owner recording observed BUILD `b0805-30` on 2026-08-13.
 
-- branch: `agent/b0805-29-possession-footwork`
-- SHA: `60b993b73fed854934a976e45e8feb9437deb584`
-- BUILD: `b0805-29`
-
-Owner-played current JS build observed in the 2026-08-13 recording: `b0805-30`.
-
-### R1 -> R1a -> R1b batted-ball identity recovery
-
-R1:
-
-- branch: `claude/b0805-30-owner-closure-r1-batted-ball-identity`
-- implementation: `bee15b6594498ef91440b9629604cdac18430c6d`
-- final HEAD: `5088aeefd0ee632282c36120185dcc97ff2fc880`
-
-R1a:
-
-- branch: `claude/b0805-30-owner-closure-r1a-classifier-compat`
-- implementation: `90514d7b592b63a993a1374eb6a905c9e4e38880`
-- final HEAD: `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
-
-R1b:
-
-- branch: `agent/b0805-30-owner-closure-r1b-contact-height-compat`
-- implementation: `4d1b9f039b3f6028f31290eb1f69848890539700`
-- final HEAD: `33b5518a3eb9e76e6525dc7e23556c55ed88ec5d`
-- Browser GPT independent verdict: **APPROVED as implementation candidate**
+R1/R1a/R1b batted-ball identity recovery:
+- R1 implementation `bee15b6594498ef91440b9629604cdac18430c6d`, final `5088aeefd0ee632282c36120185dcc97ff2fc880`
+- R1a implementation `90514d7b592b63a993a1374eb6a905c9e4e38880`, final `de8dcd6175ed866a9f96f5768c228eec1b53fb6d`
+- R1b implementation `4d1b9f039b3f6028f31290eb1f69848890539700`, final `33b5518a3eb9e76e6525dc7e23556c55ed88ec5d`
+- Browser GPT independent verdict through R1b: **APPROVED as implementation candidate**
 - independent audit: `docs/audits/b0805_30_owner_closure_r1b_browser_redteam_20260814.md`
 
-R1b repaired contact-time physical classification so production `startFlight()` passes its actual launch height to the apex/classification path instead of relying on fixed `z=1.4`.
+Issue #33 remains open because integration/owner verification is separate from implementation review.
 
-Important: this does **not** close Issue #33. Project closure still requires integration/owner verification where applicable.
+Known semantic debt carried into Unity instead of starting JS R1c now:
+- contact-time physical category uses `la<=5 -> ゴロ`;
+- existing caught-air semantics can label an unlanded very-low-angle ball `ライナー`.
 
-Known semantic debt to carry into Unity instead of starting JS R1c now:
+## 2. JS work deliberately paused
 
-- contact-time classifier uses `la<=5 -> ゴロ`;
-- existing caught-air classifier can call an unlanded very-low-angle ball `ライナー`.
-
-Unity should choose and test one coherent physical-category definition.
-
-## 2. JS work that remains paused
-
-Do not automatically resume these while the Unity path is being evaluated/developed:
-
-- JS owner-closure R2/R3
+Do not automatically resume while Unity is being developed:
+- JS R2/R3
 - PR #32 automatic integration
 - Issue #30 implementation in JS
 - M1 Final Validation
 - P1/E1/F1/P2
 
-Issue #30 structural requirements must not be forgotten if Unity is adopted. They include:
-
+Issue #30 requirements remain Unity acceptance requirements if Unity is adopted:
 - RunnerContact / TagEvent
 - complete ThrowRoute / relay progress / cycle prevention
 - HOLD_BALL
@@ -88,276 +64,227 @@ Issue #30 structural requirements must not be forgotten if Unity is adopted. The
 - geometric RundownAdmission
 - possession-to-display lifecycle
 
-Known relay-loop failure from JS recording:
-
+Known JS relay-loop failure:
 `1B -> 2B -> RF -> 2B -> RF -> 2B -> RF -> P`
 
-A throw-count watchdog is not considered a real fix.
+A throw-count watchdog is not considered a repair.
 
-## 3. Unity migration policy
+## 3. Unity architecture policy
 
-Unity implementation is a separate project/repository named/suggested as `baseball3d-unity`.
-
-Policy source in the JS/reference repo:
-
+Policy source:
 - `docs/unity/AI_WORKER_POLICY_20260813.md`
 
-Key rules:
+Core rules:
+- do not translate the giant JS file literally;
+- deterministic Core/Simulation separate from Unity Presentation;
+- Unity physics engine is not sole gameplay authority;
+- presentation reads authoritative simulation state;
+- avoid hidden manual Editor state;
+- Grok/Codex use the same automation scripts;
+- owner acceptance required for visual/game-feel claims;
+- worker self-report is not final approval.
 
-- do not port the giant JS file literally;
-- deterministic Core/Simulation should be separated from Unity presentation;
-- Unity Rigidbody/PhysX must not become the sole authority for baseball gameplay physics;
-- presentation should read simulation state rather than own the authoritative result;
-- no hidden manual Editor state where automation/version-controlled state can be used;
-- Grok Build and Codex should use the same automation scripts;
-- owner visual/game-feel acceptance is required for visual claims;
-- checkpoint self-reports are not final approval.
+## 4. U0 bootstrap — earlier local checkpoint
 
-## 4. Unity U0 — completed local bootstrap checkpoint
+Reported at U0:
+- bootstrap PASS, Editor automation generated `Assets/Baseball/Scenes/U0Prototype.unity`
+- EditMode 4/4 PASS
+- PlayMode 2/2 PASS
+- `unity-validate.ps1` PASS
+- Windows Mono development build PASS
+- Unity audit `docs/audits/U0_BOOTSTRAP_AUDIT_20260813.md`
+- Unity handoff `docs/handoff/CURRENT_STATE.md`
 
-U0 was completed locally before the batched-review policy was adopted.
+Installed build support reported: Windows standalone + WebGL. Android/iOS/Windows IL2CPP/Linux/Mac/UWP not installed.
 
-Reported local results:
+These are historical U0 results only.
 
-- `bootstrap`: PASS
-  - Editor automation generated `Assets/Baseball/Scenes/U0Prototype.unity`
-- `tests`: PASS at that U0 checkpoint
-  - EditMode 4/4
-  - PlayMode 2/2
-- `unity-validate.ps1`: PASS
-- Windows development build: PASS
-  - `Builds/Windows/baseball3d-unity.exe` (gitignored)
-- Unity-side audit: `docs/audits/U0_BOOTSTRAP_AUDIT_20260813.md`
-- Unity-side handoff: `docs/handoff/CURRENT_STATE.md`
-- branch at that stage: `agent/unity-u0-bootstrap`
-- worktree reported clean
+## 5. Earlier U4.5a checkpoint — Input configuration repair
 
-U0 environment notes reported by Grok:
-
-- first bootstrap initially failed because template packages produced `CS0619` errors after package changes;
-- U0-unneeded Input System / Timeline / AI Navigation / Collab Proxy packages were removed;
-- installed build support included Windows standalone and WebGL;
-- Android, iOS, Windows IL2CPP, Linux, Mac, UWP were not installed;
-- U0 build used Windows Mono standalone;
-- no modules were silently installed.
-
-Do not use these U0 test/build results as evidence for later Unity commits.
-
-## 5. Development mode changed to batched `/goal`
-
-The user explicitly requested faster development and fewer stop/review cycles.
-
-Approved working model:
-
-```text
-checkpoint A
--> checkpoint B
--> checkpoint C
--> checkpoint D
--> current-HEAD full validation
--> batched Browser GPT red-team
-```
-
-Grok should continue autonomously through routine engineering decisions and stop early only for genuinely destructive/irreversible actions, owner design choices, credentials, data-loss risk, or an architectural contradiction that cannot be resolved within scope.
-
-Do not weaken/delete tests to get green. If runtime validation is temporarily environment-blocked, preserve tests and record the blocker accurately.
-
-## 6. Current Unity local-only checkpoint — U4.5a
-
-Latest exact Unity commit reported by Grok/owner in this session:
-
+Earlier exact local checkpoint:
 `d234bd7df8fad9e49cc1de273e8e77d1c4f4865e`
 
-Status:
-
-- committed locally
-- **not merged**
-- treat as **PROVISIONAL CHECKPOINT**, not approved and not rejected
-- Unity GitHub remote is still absent from the GitHub repositories accessible to Browser GPT as of 2026-08-14
-- therefore Browser GPT cannot independently inspect this commit yet
-
-### What `d234bd7...` changed
-
-Reported root cause for the immediate Input issue:
-
-- Input System package had been removed;
-- `activeInputHandler: 1` remained;
-- an orphaned Actions reference remained;
-- this was inconsistent with `UnityEngine.Input` / Legacy Input usage.
+Status: committed, not merged, provisional, not independently inspectable yet.
 
 Reported fix:
+- Input System package was removed but `activeInputHandler: 1` remained;
+- orphaned Actions reference remained;
+- changed to `activeInputHandler: 0`;
+- removed orphaned Actions reference;
+- preserved Legacy keyboard `Space/R/T/C` and IMGUI mouse UI;
+- no exception suppression;
+- Core/Simulation diff versus parent reported empty.
 
-- set `activeInputHandler: 0`;
-- remove the orphaned Actions reference;
-- preserve Legacy keyboard controls `Space / R / T / C`;
-- preserve IMGUI mouse UI;
-- no exception suppression was added.
+At this checkpoint, static fixture/config checks and `unity-validate.ps1` passed. Unity runtime tests/build were environment-blocked and old results were explicitly not reused.
 
-Reported scope statement:
+## 6. LATEST local checkpoint — five-role grounder assignment
 
-- Core/Simulation changes in this checkpoint: none;
-- diff to the parent for Core/Simulation: empty.
+A later Grok result arrived after the first handoff draft and supersedes the prior statement that 1B/3B primary assignment still needed implementation.
 
-### Ground-ball fixture/config coverage at this checkpoint
+Reported branch:
+`agent/unity-u0-bootstrap`
 
-Reported fixtures:
+Reported implementation commit prefix:
+`3f04f4a` — `Core: assign grounder primary from intercept and ReachModel`
 
-| Fixture | EV | LA | Spray | Core expected primary |
-|---|---:|---:|---:|---|
-| golden | 91 | 1° | 19° | 2B |
-| Pitcher front | 84 | 0° | 0° | P |
-| Pitcher front / slow roller | 58 | 0° | 2° | P |
-| Second-base side / hard grounder | 108 | 0° | 24° | 2B |
-| Shortstop side / close play | 94 | -1° | -14° | SS |
-| Shortstop side | 78 | 1° | -22° | SS |
+Reported record/follow-up prefix:
+`f1d2292`
 
-Reported fixture contract:
+Latest exact reported local HEAD:
+`f1d2292244178d1e630423a4e7fdeef459fee9a3`
 
-- all six contact definitions are unique;
-- fixture data does **not** retain/force the expected primary into simulation;
-- HUD shows fixture name, EV, LA, spray, Core expectation, and actual primary.
+Status:
+- local-only
+- not merged
+- Browser GPT has not independently inspected ancestry/diff yet
 
-### Current fielding-assignment limitation — mandatory follow-up
+### Reported architecture
 
-`Diamond.AssignPrimaryForGrounder` currently returns only:
+Old authority:
+- `Diamond.AssignPrimaryForGrounder(spray)` with fixed `>8° -> 2B`, `<-8° -> SS`, otherwise `P`
+- 1B and 3B could never be primary
 
-- P
-- 2B
-- SS
+Reported new authority:
+- `Assets/Baseball/Core/FieldingAssignment.cs`
 
-It does **not** yet independently assign 1B or 3B.
+Reported flow:
+1. `BallPhysics.cs` predicts the rolling ball using the same equations as production `PlaySimulation`;
+2. `ReachModel.cs` computes fielder arrival time from reaction + acceleration + running;
+3. P / 1B / 2B / 3B / SS compete for reachable intercept points;
+4. earliest feasible fielder becomes primary;
+5. pitcher is constrained from chasing beyond the mound-front area into middle-infielder depth.
 
-This was explicitly marked `GROK_REQUIRED` and must not be worked around by selecting only fixtures that avoid 1B/3B.
+Fixture inputs reportedly contain only batted-ball contact values (EV/LA/spray); expected primary is not fed into simulation.
 
-The real Core/Simulation assignment model must be extended to deterministic, realistic competition across at least:
+### Reported required fixtures
 
-- P
-- 1B
-- 2B
-- 3B
-- SS
+| Contact | Expected primary |
+|---|---|
+| 58 mph / 2° / 0° pitcher-front slow roller | P |
+| 78 / 2 / 42 first-base line | 1B |
+| 82 / 2 / 40 first-base side | 1B |
+| 91 / 1 / 19 golden grounder | 2B |
+| 88 / 1 / 15 second-base side | 2B |
+| 78 / 2 / -42 third-base line | 3B |
+| 82 / 2 / -40 third-base side | 3B |
+| 88 / 1 / -18 shortstop side | SS |
 
-Expected primary must remain fixture expectation only, not an input to Core assignment.
+Reported boundary behavior:
+- moving the nearby defender toward the predicted batted-ball point flips 1B/2B or 3B/SS assignment;
+- intended as evidence that assignment is not a fixed coordinate/spray-role table;
+- old angle table would select 2B for +42° and SS for -42°, while new model reports 1B/3B.
 
-Add coverage for first-base-line / first-baseman-side and third-base-line / third-baseman-side grounders, plus competition/boundary cases where two fielders are plausible. Avoid a simplistic hard-coded spray-angle partition as the final model; use deterministic baseball geometry/reach/fielding suitability.
+Golden 91mph / 1° / spray19° remains 2B and an out.
 
-## 7. Current verification state at `d234bd7...`
+U1–U4 EditMode tests reportedly remain present.
 
-Reported current-code checks:
+## 7. Latest verification evidence
 
-- static fixture/config checks: PASS
-- `unity-validate.ps1`: PASS
+At latest local HEAD `f1d2292244178d1e630423a4e7fdeef459fee9a3`, Grok reported:
+- `scripts/unity-validate.ps1`: PASS
+- shipped Core/Simulation + EditMode tests executed outside the normal Unity Editor test script using the same NUnit attributes: **48/48 PASS**
 
-Current-code runtime/test/build verification is **ENVIRONMENT-BLOCKED**, not PASS and not yet evidence of code failure:
+Evidence boundary:
+- this 48/48 is useful supplementary evidence but is **not equivalent** to `scripts/unity-test.ps1` completing under Unity Editor;
+- `scripts/unity-test.ps1` did not complete;
+- reported blocker: Unity `6000.5.8f1` was also being used by Luna's U4.5a worktree, preventing IL post-processing from starting; retry after the other run ended still failed at that stage;
+- Grok did not terminate unrelated Unity projects/processes;
+- PlayMode Editor tests were not rerun;
+- current-HEAD Windows/WebGL build was not reported successful.
 
-- EditMode: stopped before test discovery due Unity Licensing Client / Package Manager IPC failure
-- PlayMode: same IPC failure before test discovery
-- Windows Development Build: not generated due same IPC failure
-- Development Console runtime confirmation: unavailable because no new build was generated
+Do not cite earlier 29 EditMode / 4 PlayMode or old builds as current evidence.
 
-Do **not** cite older pre-U4.5a results as evidence for `d234bd7...` or later HEADs.
+## 8. New structural gap exposed by valid 1B primary
 
-Grok explicitly reported that previous results (29 EditMode / 4 PlayMode and the previous build) are older than U4.5a and therefore not accepted as current evidence.
+Grok explicitly reported:
 
-## 8. Unity IPC blocker handling
+> If 1B fields the grounder, CPU still throws to first, but who covers first is outside this change.
 
-The Unity Licensing Client / Package Manager IPC problem may be diagnosed/recovered non-destructively while development continues.
+This is now the next high-priority gameplay architecture gap.
 
-Allowed examples:
+Defense needs **joint primary + cover assignment**, especially when 1B leaves the bag to field. A legal first-base receiver/cover (often P depending on live geometry/play) must be assigned explicitly; do not allow an uncovered-base throw or pretend the 1B can field and simultaneously cover.
 
-- inspect Unity / licensing / package manager logs;
-- detect stale/concurrent Unity automation processes;
-- cleanly stop/restart ordinary Unity/Hub/licensing processes when safe;
-- retry batchmode after normal process cleanup;
-- verify whether a minimal project initializes.
+This directly matches the known Issue #30 chase + cover joint-assignment requirement.
 
-Do not delete licenses, credentials, project data, or machine-wide caches destructively without owner approval.
+Do not special-case fixture names or expected-primary metadata. Cover derives from live defensive roles/geometry.
 
-If IPC remains broken, record it accurately and continue static/architectural work that is safe to do without runtime execution. However, do not declare the larger batch complete or merge until current-HEAD test/build gates run successfully.
+## 9. Luna / concurrency note
 
-## 9. Next autonomous development requirements
+Grok reported it did not inspect or merge:
+`agent/luna-u4_5-owner-playtest-layer`
 
-Continue the active `/goal` rather than stopping for Browser GPT at every checkpoint.
+Do not assume compatibility/ancestry until actual Git history is inspected. Do not destructively kill unrelated Unity sessions merely to obtain test green; coordinate a clean test window.
 
-Priority 1 — complete real five-role infield grounder assignment:
+## 10. Critical GitHub gap
 
-- P / 1B / 2B / 3B / SS
-- deterministic geometry/reach/fielding suitability
-- fixture expected-primary metadata must not influence output
-- include boundary/competition cases
-- add adverse/mutation detection where practical (e.g. make 1B or 3B unreachable and ensure suite detects it)
+As of the latest GitHub check on 2026-08-14, account `L-carp55` still has no accessible `baseball3d-unity` repository.
 
-Then continue structural Core Alpha requirements, prioritizing:
+Therefore neither `d234bd7...` nor latest exact HEAD `f1d2292244178d1e630423a4e7fdeef459fee9a3` is independently recoverable/reviewable from GitHub yet.
 
-- fielding assignment quality
-- explicit BallPossession
-- FieldingExecution
-- ThrowRoute progress / cycle prevention
-- HOLD_BALL
-- receive -> transfer timing
-- RunnerContact / TagEvent
-- close-play authority
-- debugging / observability
+First task before GitHub-only continuation:
+1. create private `L-carp55/baseball3d-unity` from the **existing local repo**;
+2. preserve its current history/branches;
+3. do not create a fresh project;
+4. do not rebase/squash/reset/force-push to make history pretty;
+5. push enough history/branches to recover latest HEAD and earlier checkpoints;
+6. verify remote reachability of `f1d2292244178d1e630423a4e7fdeef459fee9a3` and, if part of ancestry, `d234bd7...`.
 
-Do not spend visual polish merely to hide missing Core behavior.
+Publish task:
+- `docs/unity/TASK_PUBLISH_EXISTING_UNITY_REPO_20260814.md`
 
-When Unity IPC becomes healthy, immediately run against **current HEAD**:
+## 11. Batched `/goal` priority after remote publication
 
-- full EditMode suite
-- full PlayMode suite
+Do not blindly assign “implement 1B/3B primary” again. Remote inspection should first verify `3f04f4a`/latest HEAD.
+
+Priority after verification:
+1. independently verify five-role assignment code/tests on remote;
+2. implement primary + base-cover coordination, especially 1B-fields -> first-base cover;
+3. restore current-HEAD Unity Editor tests/build execution;
+4. improve assignment boundary realism if review/tests reveal issues;
+5. explicit BallPossession;
+6. FieldingExecution;
+7. ThrowRoute progress/cycle prevention;
+8. HOLD_BALL;
+9. receive -> transfer timing;
+10. RunnerContact / TagEvent;
+11. close-play authority;
+12. debugging/observability.
+
+When environment is healthy, run against current HEAD:
+- full EditMode
+- full PlayMode
 - `unity-validate.ps1`
 - Windows Development Build
-- WebGL Development Build if installed/supported without adding modules
+- WebGL Development Build if already supported
 - runtime smoke check
 
-Fix real failures before calling the batch complete.
+## 12. Review / merge policy
 
-## 10. Git / review policy from this point
-
-- preserve checkpoint commits;
+- preserve meaningful checkpoint commits;
 - no automatic merge;
 - no force-push merely to tidy history;
-- no dozens of noisy commits;
-- roughly 4–8 meaningful checkpoints per review batch is a good target;
-- Browser GPT performs batched red-team after the coherent batch and current-code validation are ready.
+- roughly 4–8 meaningful checkpoints per review batch is appropriate;
+- Browser GPT performs batched independent red-team after coherent batch + current-code validation;
+- revert to per-commit stop/review only for high-severity contract defects or genuinely risky actions.
 
-## 11. CRITICAL GitHub gap at session handoff
+## 13. Next-session recovery order
 
-As of this handoff, GitHub account `L-carp55` has **no accessible repository named `baseball3d-unity`**, and `baseball3d-game` has no `unity` branch.
-
-Therefore the Unity source/history through local commit `d234bd7df8fad9e49cc1de273e8e77d1c4f4865e` is **not yet independently recoverable from GitHub**.
-
-This is the first task to close before relying on GitHub-only continuation:
-
-1. create a **private** GitHub repository for the existing local `baseball3d-unity` repository;
-2. add it as `origin` without rewriting local history;
-3. push all local branches/history needed for recovery, including the branch containing `d234bd7...`;
-4. do not merge anything merely as part of the upload;
-5. verify `git status`, remote branch HEADs, and that `d234bd7...` is reachable remotely;
-6. then Browser GPT can independently inspect Unity commits in later sessions.
-
-Do not create a fresh Unity project and copy files into it. Preserve the existing local Git history.
-
-## 12. Next-session recovery order
-
-A new Browser GPT session should:
-
-1. read `docs/handoff/CURRENT_STATE.md` on `agent/research-baseball-motion-ai`;
+1. read `docs/handoff/CURRENT_STATE.md`;
 2. read this file;
 3. read `docs/handoff/NEXT_SESSION_PROMPT_20260814.md`;
-4. inspect GitHub for the newly pushed `baseball3d-unity` private repo;
-5. if it exists, verify remote ancestry/HEAD and inspect `d234bd7...` plus later checkpoints before giving implementation instructions;
-6. if it still does not exist, the first action is to have Grok publish the existing local Unity repository without rewriting history;
-7. continue batched `/goal` development; do not revert to per-commit stop/review unless a high-severity contract defect is found.
+4. inspect whether private `baseball3d-unity` exists;
+5. if yes, verify exact branch/HEAD/ancestry, ensure `f1d2292244178d1e630423a4e7fdeef459fee9a3` is reachable, then inspect `FieldingAssignment.cs`, `BallPhysics.cs`, `ReachModel.cs`, fixtures/tests and commits around `3f04f4a`/`f1d2292`;
+6. if no, publish existing local Unity repo first without rewriting history;
+7. continue batched `/goal` development from remote truth.
 
-## 13. Do not do automatically
+## 14. Do not automatically do
 
-- do not merge Unity checkpoints before batched review/full current-code gates;
-- do not resume JS R2/R3 simply because a Unity runtime gate is temporarily blocked;
-- do not resume M1/P1;
-- do not merge PR #32 automatically;
-- do not mark Issue #30 or #33 closed;
-- do not discard local Unity history when creating the remote;
-- do not claim `d234bd7...` tests/build passed using older results;
-- do not work around 1B/3B assignment by excluding those plays from fixtures;
-- do not make fixture expectation authoritative simulation input.
+- do not merge Unity checkpoints before the batch gate;
+- do not recreate Unity project to solve missing remote;
+- do not rewrite local Unity history when publishing;
+- do not claim Unity Editor tests/build passed from the 48/48 supplementary runner;
+- do not blindly redo 1B/3B primary work if remote confirms it already exists;
+- do not ignore the 1B-fielding / first-base-cover gap;
+- do not make expected-primary metadata authoritative simulation input;
+- do not resume JS R2/R3, M1/P1, or PR #32 automatic integration;
+- do not mark Issue #30/#33 closed.
